@@ -149,7 +149,15 @@ class EvertyVpnService : VpnService() {
 
                 if (vpnInterface != null) {
                     val pfd = vpnInterface!!
-                    val fd = pfd.fd
+                    // Give tun2socks its own descriptor. Passing pfd.fd directly
+                    // makes Android and the native engine own the same fd, which
+                    // causes fdsan to abort the process during VPN shutdown.
+                    val fd = ParcelFileDescriptor.dup(pfd.fileDescriptor).detachFd()
+                    // The duplicated descriptor keeps the TUN alive. Close the
+                    // framework-owned descriptor now so only tun2socks owns a
+                    // descriptor for this interface.
+                    pfd.close()
+                    vpnInterface = null
                     isRunning.set(true)
 
                     Log.d(TAG, "VPN TUN established successfully (fd=$fd), starting Tun2Socks...")

@@ -94,6 +94,8 @@ class HomeFragment : Fragment() {
     }
 
     fun updateModeDisplay() {
+        if (_binding == null || !::settings.isInitialized) return
+
         val forcedNode = settings.getForcedNode()
         val allNodes = settings.getNodes()
         val enabledNodes = allNodes.filter { it.isEnabled }
