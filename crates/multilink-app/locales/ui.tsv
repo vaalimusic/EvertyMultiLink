@@ -349,3 +349,18 @@ TUN выбран · для подключения нужны права адми
 Проверка региона не дала ответа (HTTP {}) · {}	Region check inconclusive (HTTP {}) · {}	Regionstest nicht eindeutig (HTTP {}) · {}	Prueba de región no concluyente (HTTP {}) · {}	无法确定地区状态（HTTP {}）· {}
 Нет ответа Google через выбранный сервер	No response from Google through the selected server	Keine Antwort von Google über den gewählten Server	Google no responde a través del servidor seleccionado	所选服务器未收到 Google 响应
 Для этого адреса или приложения уже есть другое правило. Откройте его и измените маршрут.	A rule for this address or app already exists. Open it to change the route.	Für diese Adresse oder App gibt es bereits eine Regel. Öffne sie, um die Route zu ändern.	Ya existe una regla para esta dirección o aplicación. Ábrela para cambiar la ruta.	此地址或应用已有规则。请打开该规则修改路由。
+Резервная копия всех настроек	Backup of all settings	Sicherung aller Einstellungen	Copia de seguridad completa	备份所有设置
+Экспорт и импорт серверов, подписок и правил в JSON.	Export and import servers, subscriptions and rules to JSON.	Server, Abonnements und Regeln in JSON exportieren und importieren.	Exportar e importar servidores, suscripciones y reglas en JSON.	导出和导入服务器、订阅及规则到 JSON。
+Экспорт	Export	Exportieren	Exportar	导出
+Импорт	Import	Importieren	Importar	导入
+Все настройки успешно экспортированы	All settings successfully exported	Alle Einstellungen erfolgreich exportiert	Todas las opciones se exportaron con éxito	所有设置已成功导出
+Все настройки успешно импортированы	All settings successfully imported	Alle Einstellungen erfolgreich importiert	Todas las opciones se importaron con éxito	所有设置已成功导入
+Нельзя отключить единственный активный сервер во время работы VPN	Cannot disable the only active server while VPN is running	Der einzige aktive Server kann bei laufendem VPN nicht deaktiviert werden	No se puede desactivar el único servidor activo mientras la VPN está conectada	VPN 运行期间无法禁用唯一的活动服务器
+Нельзя выключить все серверы при активном VPN	Cannot disable all servers while VPN is running	Bei aktivem VPN können nicht alle Server deaktiviert werden	No se pueden desactivar todos los servidores con la VPN activa	VPN 运行时无法禁用所有服务器
+Недоступно при активном VPN. Отключите VPN для изменения.	Unavailable while VPN is active. Disconnect VPN to change.	Bei aktivem VPN nicht verfügbar. Zum Ändern trennen.	No disponible con la VPN activa. Desconecta la VPN para cambiarlo.	VPN 运行时不可用。请先断开 VPN。
+Отключите VPN для смены сетевого режима	Disconnect VPN to change network mode	VPN trennen, um Netzwerkmodus zu wechseln	Desconecta la VPN para cambiar el modo de red	请先断开 VPN 以更改网络模式
+Отключите VPN для смены алгоритма выбора	Disconnect VPN to change selection policy	VPN trennen, um Auswahlmodus zu wechseln	Desconecta la VPN para cambiar el método de selección	请先断开 VPN 以更改选择策略
+Отключите VPN для очистки списка серверов	Disconnect VPN to clear server list	VPN trennen, um Serverliste zu leeren	Desconecta la VPN para borrar la lista de servidores	请先断开 VPN 以清空服务器列表
+Отключите VPN для добавления новых серверов	Disconnect VPN to add new servers	VPN trennen, um neue Server hinzuzufügen	Desconecta la VPN para añadir servidores	请先断开 VPN 以添加新服务器
+Отключите VPN для добавления новой подписки	Disconnect VPN to add a subscription	VPN trennen, um neues Abonnement hinzuzufügen	Desconecta la VPN para añadir una suscripción	请先断开 VPN 以添加新订阅
+🇷🇺 Локальный RU-узел (прямой доступ / вне пула умного режима)	🇷🇺 Local RU node (direct access / excluded from smart pool)	🇷🇺 Lokaler RU-Knoten (Direktzugriff / außerhalb des Smart-Pools)	🇷🇺 Nodo RU local (acceso directo / fuera del grupo inteligente)	🇷🇺 本地俄罗斯节点（直连 / 排除在智能模式外）

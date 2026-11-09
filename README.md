@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-1.1.1-6FE6B4?style=flat-square" alt="Version 1.1.1" />
+  <img src="https://img.shields.io/badge/Version-1.1.2-6FE6B4?style=flat-square" alt="Version 1.1.2" />
   <img src="https://img.shields.io/badge/Language-Rust%20%7C%20Kotlin-DEA584?style=flat-square" alt="Rust &amp; Kotlin" />
   <img src="https://img.shields.io/badge/Platforms-Windows%2010%2F11%20%7C%20Android%20%7C%20Android%20TV-0078D6?style=flat-square" alt="Platforms" />
   <img src="https://img.shields.io/badge/UI-EvertyUI%20(Zero%20WebView)%20%7C%20Material-green?style=flat-square" alt="UI" />
@@ -66,12 +66,12 @@
 
 | Платформа | Формат | Описание |
 | :--- | :--- | :--- |
-| **Windows x64** | `EvertyMultiLink-1.1.1-windows-x64-setup.exe` | Автоматический установщик для Windows 10/11 |
-| **Windows x64** | `EvertyMultiLink-1.1.1-windows-x64-portable.zip` | Портативная версия (не требует установки) |
-| **Android (arm64)** | `EvertyMultiLink-1.1.1-arm64-v8a-release.apk` | Смартфоны и современные ТВ-приставки |
-| **Android (armv7)** | `EvertyMultiLink-1.1.1-armeabi-v7a-release.apk` | 32-битные ТВ и старые смартфоны |
-| **Android (x86_64)** | `EvertyMultiLink-1.1.1-x86_64-release.apk` | Эмуляторы Android и устройства Intel/AMD |
-| **Android (Universal)**| `EvertyMultiLink-1.1.1-universal-release.apk` | Универсальный APK для любых Android-устройств |
+| **Windows x64** | `EvertyMultiLink-1.1.2-windows-x64-setup.exe` | Автоматический установщик для Windows 10/11 |
+| **Windows x64** | `EvertyMultiLink-1.1.2-windows-x64-portable.zip` | Портативная версия (не требует установки) |
+| **Android (arm64)** | `EvertyMultiLink-1.1.2-arm64-v8a-release.apk` | Смартфоны и современные ТВ-приставки |
+| **Android (armv7)** | `EvertyMultiLink-1.1.2-armeabi-v7a-release.apk` | 32-битные ТВ и старые смартфоны |
+| **Android (x86_64)** | `EvertyMultiLink-1.1.2-x86_64-release.apk` | Эмуляторы Android и устройства Intel/AMD |
+| **Android (Universal)**| `EvertyMultiLink-1.1.2-universal-release.apk` | Универсальный APK для любых Android-устройств |
 
 ---
 
@@ -139,12 +139,12 @@ Pre-built binaries and APK packages are available on [GitHub Releases](https://g
 
 | Platform | Package | Description |
 | :--- | :--- | :--- |
-| **Windows x64** | `EvertyMultiLink-1.1.1-windows-x64-setup.exe` | Recommended installer for Windows 10/11 |
-| **Windows x64** | `EvertyMultiLink-1.1.1-windows-x64-portable.zip` | Standalone portable archive |
-| **Android (arm64)** | `EvertyMultiLink-1.1.1-arm64-v8a-release.apk` | Modern 64-bit phones and Android TV boxes |
-| **Android (armv7)** | `EvertyMultiLink-1.1.1-armeabi-v7a-release.apk` | 32-bit legacy devices and smart TVs |
-| **Android (x86_64)** | `EvertyMultiLink-1.1.1-x86_64-release.apk` | Android emulators & x86 hardware |
-| **Android (Universal)**| `EvertyMultiLink-1.1.1-universal-release.apk` | Single all-in-one APK for all architectures |
+| **Windows x64** | `EvertyMultiLink-1.1.2-windows-x64-setup.exe` | Recommended installer for Windows 10/11 |
+| **Windows x64** | `EvertyMultiLink-1.1.2-windows-x64-portable.zip` | Standalone portable archive |
+| **Android (arm64)** | `EvertyMultiLink-1.1.2-arm64-v8a-release.apk` | Modern 64-bit phones and Android TV boxes |
+| **Android (armv7)** | `EvertyMultiLink-1.1.2-armeabi-v7a-release.apk` | 32-bit legacy devices and smart TVs |
+| **Android (x86_64)** | `EvertyMultiLink-1.1.2-x86_64-release.apk` | Android emulators & x86 hardware |
+| **Android (Universal)**| `EvertyMultiLink-1.1.2-universal-release.apk` | Single all-in-one APK for all architectures |
 
 ---
 

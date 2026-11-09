@@ -956,7 +956,7 @@ pub const COUNTRIES: &[(&str, &str, &[&str])] = &[
     ("FR", "Франция", &["🇫🇷", "france", "франция", "fr"]),
     ("PL", "Польша", &["🇵🇱", "poland", "польша", "pl"]),
     ("TR", "Турция", &["🇹🇷", "turkey", "türkiye", "турция", "tr"]),
-    ("RU", "Россия", &["🇷🇺", "russia", "россия", "ru"]),
+    ("RU", "Россия", &["🇷🇺", "russia", "россия", "ru", "rus", "москва", "moscow"]),
     ("SG", "Сингапур", &["🇸🇬", "singapore", "сингапур", "sg"]),
     ("JP", "Япония", &["🇯🇵", "japan", "япония", "jp"]),
     ("CA", "Канада", &["🇨🇦", "canada", "канада", "ca"]),
@@ -1067,6 +1067,47 @@ pub fn available_countries(nodes: &[Node]) -> Vec<(String, String)> {
         (code, label)
     }));
     result
+}
+
+pub fn is_russian_node(node: &Node) -> bool {
+    if node_country(&node.name).as_deref() == Some("RU") {
+        return true;
+    }
+    if node.name.contains("🇷🇺") {
+        return true;
+    }
+    let lower = node.name.to_lowercase();
+    let words: Vec<&str> = lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|s| !s.is_empty())
+        .collect();
+    const RU_KEYWORDS: &[&str] = &[
+        "russia", "россия", "российск", "moscow", "москва", "msk", "мск",
+        "spb", "спб", "питер", "петербург", "petersburg", "novosibirsk",
+        "новосибирск", "ekaterinburg", "екатеринбург", "kazan", "казань",
+    ];
+    if words.iter().any(|w| RU_KEYWORDS.iter().any(|k| w.contains(k))) {
+        return true;
+    }
+    for word in &words {
+        let cleaned = word.trim_matches('-');
+        if cleaned == "ru" || cleaned == "rus" {
+            return true;
+        }
+        if cleaned.starts_with("ru") && cleaned.len() >= 3 && cleaned[2..].chars().all(|c| c.is_ascii_digit()) {
+            return true;
+        }
+        if cleaned.ends_with("ru") && cleaned.len() >= 3 && cleaned[..cleaned.len() - 2].chars().all(|c| c.is_ascii_digit()) {
+            return true;
+        }
+    }
+    if let Some(server) = node.proxy.get(serde_yaml::Value::from("server")).and_then(serde_yaml::Value::as_str) {
+        let s = server.to_lowercase();
+        if s.ends_with(".ru") || s.ends_with(".рф") || s.ends_with(".su") || s.ends_with(".xn--p1ai") {
+            return true;
+        }
+    }
+    false
 }
 
 /// Used to retire existing connections affected by a changed exception.
@@ -1327,5 +1368,27 @@ mod tests {
             ]
         );
         assert!(normalize_direct_rules(&["DOMAIN-SUFFIX,example.com,COUNTRY-Z9".into()]).is_err());
+    }
+    #[test]
+    fn test_russian_node_detection() {
+        let mut n1 = parse_subscription(URI).unwrap().pop().unwrap();
+        n1.name = "🇷🇺 Russia Fast 01".into();
+        assert!(is_russian_node(&n1));
+
+        let mut n2 = n1.clone();
+        n2.name = "Moscow-02 HighSpeed".into();
+        assert!(is_russian_node(&n2));
+
+        let mut n3 = n1.clone();
+        n3.name = "RU01-direct".into();
+        assert!(is_russian_node(&n3));
+
+        let mut n4 = n1.clone();
+        n4.name = "Питер Сервер 1".into();
+        assert!(is_russian_node(&n4));
+
+        let mut n5 = n1.clone();
+        n5.name = "🇩🇪 Germany Frankfurt".into();
+        assert!(!is_russian_node(&n5));
     }
 }

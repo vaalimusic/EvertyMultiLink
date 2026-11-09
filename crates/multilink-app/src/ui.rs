@@ -120,8 +120,27 @@ struct Canvas<'a> {
     locked: bool,
     busy: bool,
     hits: Vec<(LogicalRect, Action)>,
+    disabled_hits: Vec<(LogicalRect, String)>,
 }
 impl Canvas<'_> {
+    fn disabled_reason(&self, action: Action) -> String {
+        if self.busy {
+            return "Подождите…".into();
+        }
+        match action {
+            Action::ToggleSystemProxy | Action::ToggleTun => {
+                "Отключите VPN для смены сетевого режима".into()
+            }
+            Action::Policy => "Отключите VPN для смены алгоритма выбора".into(),
+            Action::ClearServers => "Отключите VPN для очистки списка серверов".into(),
+            Action::Import => "Отключите VPN для добавления новых серверов".into(),
+            Action::EditSubscriptionUrl(_)
+            | Action::RenameSubscription(_)
+            | Action::DeleteSubscription(_) => "Отключите VPN для изменения подписки".into(),
+            Action::DisableAllServers => "Нельзя выключить все серверы при активном VPN".into(),
+            _ => "Недоступно при активном VPN. Отключите VPN для изменения.".into(),
+        }
+    }
     fn icon_button(&mut self, x: f64, y: f64, icon: u32, action: Action, hint: &str) {
         self.button(x, y, 38.0, "", action, false);
         self.b.icon(
@@ -135,12 +154,19 @@ impl Canvas<'_> {
     }
     fn toggle(&mut self, x: f64, y: f64, on: bool, action: Action) {
         self.button(x, y, 54.0, "", action, false);
+        let enabled = match action {
+            Action::ToggleAutostart => true,
+            Action::Toggle(_) => !self.busy,
+            _ => !self.locked,
+        };
         self.rect(
             x + 5.0,
             y + 7.0,
             44.0,
             24.0,
-            if on { ACCENT } else { LINE },
+            if on {
+                if enabled { ACCENT } else { ACCENT.mix(PANEL, 0.5) }
+            } else { LINE },
             12.0,
         );
         self.rect(
@@ -247,6 +273,8 @@ impl Canvas<'_> {
             Action::Connect | Action::Close | Action::Paste | Action::Submit => !self.busy,
             Action::SelectRuleTarget(_) | Action::TargetPage(_) => !self.busy,
             Action::RefreshSubscription(_) => !self.busy,
+            Action::ExportSettings | Action::ImportSettings => !self.busy,
+            Action::Toggle(_) | Action::EnableAllServers => !self.busy,
             Action::AddRule
             | Action::AddRuDomains
             | Action::AddProcessRule
@@ -310,6 +338,9 @@ impl Canvas<'_> {
         let _ = self.b.pop_clip();
         if enabled {
             self.hits.push((r, action));
+        } else {
+            let reason = self.disabled_reason(action);
+            self.disabled_hits.push((r, reason));
         }
     }
     fn badge(&mut self, x: f64, y: f64, label: &str, active: bool) {
@@ -453,6 +484,7 @@ impl App {
             locked: self.connected || self.busy,
             busy: self.busy,
             hits: Vec::new(),
+            disabled_hits: Vec::new(),
         };
         if self.compact {
             let tun_active = self.connected && self.settings.tun;
@@ -1605,85 +1637,116 @@ impl App {
                 }
             }
             Page::Settings => {
-                c.card(x, 131.0, width, 204.0);
-                c.text(x + 24.0, 151.0, "Подключение", 19.0, TEXT, true);
-                c.text(x + 24.0, 190.0, "Системный прокси", 15.0, TEXT, true);
+                c.card(x, 125.0, width, 168.0);
+                c.text(x + 24.0, 143.0, "Подключение", 18.0, TEXT, true);
+                c.text(x + 24.0, 175.0, "Системный прокси", 14.0, TEXT, true);
                 c.text(
                     x + 24.0,
-                    216.0,
+                    198.0,
                     "Для браузеров и приложений с поддержкой прокси.",
-                    12.0,
+                    11.0,
                     MUTED,
                     false,
                 );
                 c.toggle(
                     w - 112.0,
-                    185.0,
+                    172.0,
                     self.settings.system_proxy,
                     Action::ToggleSystemProxy,
                 );
-                c.line(x + 24.0, 248.0, width - 48.0);
-                c.text(x + 24.0, 266.0, "TUN — весь трафик", 15.0, TEXT, true);
+                c.line(x + 24.0, 224.0, width - 48.0);
+                c.text(x + 24.0, 237.0, "TUN — весь трафик", 14.0, TEXT, true);
                 c.text(
                     x + 24.0,
-                    293.0,
+                    260.0,
                     "Потребуются права администратора Windows.",
-                    12.0,
+                    11.0,
                     MUTED,
                     false,
                 );
-                c.toggle(w - 112.0, 262.0, self.settings.tun, Action::ToggleTun);
-                c.card(x, 353.0, width, 84.0);
+                c.toggle(w - 112.0, 234.0, self.settings.tun, Action::ToggleTun);
+
+                c.card(x, 301.0, width, 66.0);
                 c.text(
                     x + 24.0,
-                    371.0,
+                    315.0,
                     "Запускать вместе с Windows",
-                    15.0,
+                    14.0,
                     TEXT,
                     true,
                 );
                 c.text(
                     x + 24.0,
-                    401.0,
+                    338.0,
                     "Приложение запустится в трее.",
-                    12.0,
+                    11.0,
                     MUTED,
                     false,
                 );
-                c.toggle(w - 112.0, 376.0, self.autostart, Action::ToggleAutostart);
-                c.card(x, 455.0, width, 70.0);
-                c.text(x + 24.0, 476.0, "Язык интерфейса", 14.0, TEXT, true);
+                c.toggle(w - 112.0, 314.0, self.autostart, Action::ToggleAutostart);
+
+                c.card(x, 375.0, width, 60.0);
+                c.text(x + 24.0, 394.0, "Язык интерфейса", 14.0, TEXT, true);
                 c.text(
                     x + 275.0,
-                    476.0,
+                    394.0,
                     i18n::label(&self.settings.language),
                     14.0,
                     ACCENT,
                     true,
                 );
-                c.icon_button(w - 94.0, 471.0, 14, Action::Language, "Изменить язык");
-                c.card(x, 543.0, width, 78.0);
-                c.text(x + 24.0, 557.0, "Выбор сервера", 14.0, TEXT, true);
+                c.icon_button(w - 94.0, 386.0, 14, Action::Language, "Изменить язык");
+
+                c.card(x, 443.0, width, 62.0);
+                c.text(x + 24.0, 455.0, "Выбор сервера", 14.0, TEXT, true);
                 c.text(
                     x + 24.0,
-                    587.0,
+                    477.0,
                     self.settings.policy.label(),
-                    14.0,
+                    13.0,
                     ACCENT,
                     true,
                 );
                 c.icon_button(
                     w - 94.0,
-                    562.0,
+                    455.0,
                     14,
                     Action::Policy,
                     "Сменить алгоритм выбора сервера",
                 );
+
+                c.card(x, 513.0, width, 68.0);
+                c.text(x + 24.0, 526.0, "Резервная копия всех настроек", 14.0, TEXT, true);
+                c.text(
+                    x + 24.0,
+                    551.0,
+                    "Экспорт и импорт серверов, подписок и правил в JSON.",
+                    11.0,
+                    MUTED,
+                    false,
+                );
+                c.button(
+                    w - 236.0,
+                    528.0,
+                    98.0,
+                    "Экспорт",
+                    Action::ExportSettings,
+                    false,
+                );
+                c.button(
+                    w - 126.0,
+                    528.0,
+                    98.0,
+                    "Импорт",
+                    Action::ImportSettings,
+                    false,
+                );
+
                 c.text(
                     x,
-                    642.0,
+                    600.0,
                     if self.connected {
-                        "Перед изменением режима отключитесь от VPN."
+                        "Перед изменением сетевого режима отключитесь от VPN."
                     } else {
                         "Режимы TUN и прокси можно включать вместе."
                     },
@@ -1693,7 +1756,7 @@ impl App {
                 );
                 c.icon_button(
                     w - 72.0,
-                    630.0,
+                    588.0,
                     2,
                     Action::ClearServers,
                     "Очистить библиотеку серверов",
@@ -1732,6 +1795,11 @@ impl App {
             );
         }
         if self.modal.is_none() {
+            if c.tooltip.is_none() {
+                if let Some((rect, hint)) = c.disabled_hits.iter().rev().find(|(r, _)| r.contains(self.pointer)) {
+                    c.tooltip = Some((*rect, hint.clone()));
+                }
+            }
             c.paint_tooltip(w, h);
         }
         if let Some(ref modal) = self.modal {
@@ -2325,6 +2393,7 @@ impl App {
             }
         }
         self.hits = c.hits;
+        self.disabled_hits = c.disabled_hits;
         c.b.finish()
     }
 }
@@ -2404,7 +2473,7 @@ fn server_list(
     {
         let ry = y + 48.0 + (position - offset) as f64 * 59.0;
         let row = LogicalRect::from_xywh(x + 10.0, ry, w - 20.0, 55.0);
-        if !c.locked && c.hover == Some(Action::Toggle(i)) {
+        if !c.busy && c.hover == Some(Action::Toggle(i)) {
             c.b.fill_rect(
                 row,
                 if c.pressed == Some(Action::Toggle(i)) {
@@ -2446,11 +2515,11 @@ fn server_list(
             TEXT,
             true,
         );
-        c.text(
-            x + 68.0,
-            ry + 29.0,
-            &node
-                .quality
+        let is_ru = multilink_core::is_russian_node(node);
+        let quality_text = if is_ru {
+            "🇷🇺 Локальный RU-узел (прямой доступ / вне пула умного режима)".to_string()
+        } else {
+            node.quality
                 .score()
                 .map(|score| {
                     format!(
@@ -2460,9 +2529,14 @@ fn server_list(
                         node.quality.samples
                     )
                 })
-                .unwrap_or_else(|| "Оценка появится после проверок подключения".into()),
+                .unwrap_or_else(|| "Оценка появится после проверок подключения".into())
+        };
+        c.text(
+            x + 68.0,
+            ry + 29.0,
+            &quality_text,
             11.0,
-            MUTED,
+            if is_ru { ACCENT } else { MUTED },
             false,
         );
         let _ = c.b.pop_clip();
@@ -2497,7 +2571,7 @@ fn server_list(
             Action::ShareNode(i),
             "Поделиться узлом (QR)",
         );
-        if !c.locked {
+        if !c.busy {
             c.hits.push((row, Action::Toggle(i)));
         }
     }
@@ -2523,6 +2597,7 @@ mod tests {
             locked: false,
             busy: false,
             hits: Vec::new(),
+            disabled_hits: Vec::new(),
         };
         let mut view = InputView::default();
         let mut scroll = 0.0;

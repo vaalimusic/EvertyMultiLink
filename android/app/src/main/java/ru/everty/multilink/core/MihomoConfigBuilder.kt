@@ -112,7 +112,13 @@ object MihomoConfigBuilder {
                 }
             }
             sb.appendLine("    proxies:")
-            for (pName in proxyNames) {
+            val autoProxies = if (forcedNode != null) {
+                proxyNames
+            } else {
+                val nonRu = nodesToInclude.mapIndexed { idx, n -> Pair(proxyNames[idx], n) }.filter { !it.second.isRussianNode() }
+                if (nonRu.isNotEmpty()) nonRu.map { it.first } else proxyNames
+            }
+            for (pName in autoProxies) {
                 sb.appendLine("      - \"$pName\"")
             }
             sb.appendLine()

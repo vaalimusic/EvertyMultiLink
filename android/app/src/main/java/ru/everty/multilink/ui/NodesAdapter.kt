@@ -73,7 +73,12 @@ class NodesAdapter(
 
         fun bind(node: VpnNode) {
             tvNodeName.text = node.name
-            tvNodeDetails.text = node.getDisplayDetails()
+            val details = if (node.isRussianNode()) {
+                "${node.getDisplayDetails()} • 🇷🇺 RU (прямой доступ)"
+            } else {
+                node.getDisplayDetails()
+            }
+            tvNodeDetails.text = details
 
             val isPinned = (node.id == forcedNodeId)
             if (isPinned) {

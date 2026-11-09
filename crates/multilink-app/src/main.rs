@@ -50,6 +50,7 @@ enum Command {
     Save(Settings),
     SaveForRestart(Settings, mpsc::Sender<Result<(), String>>),
     ApplyRouting(Vec<String>, multilink_core::Policy),
+    ApplySettings(Settings),
     Quit,
 }
 enum Update {
@@ -309,6 +310,13 @@ fn worker(rx: mpsc::Receiver<Command>, tx: UiUpdates) {
                 };
                 let _ = tx.send(update);
             }
+            Ok(Command::ApplySettings(settings)) => {
+                if let Some(c) = connection.as_mut() {
+                    if let Err(error) = c.engine.apply_settings(&settings) {
+                        let _ = tx.send(Update::OperationError(error));
+                    }
+                }
+            }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
         if Instant::now() >= next_access_check {
@@ -408,6 +416,8 @@ enum Action {
     ImportRoutes,
     ExportRoutes,
     ReplaceRoutes,
+    ExportSettings,
+    ImportSettings,
     AddRule,
     AddProcessRule,
     AddAntigravity,
@@ -481,6 +491,8 @@ struct App {
     edit: TextEdit,
     edit_scroll: f64,
     hits: Vec<(LogicalRect, Action)>,
+    disabled_hits: Vec<(LogicalRect, String)>,
+    disabled_hint: Option<String>,
     pointer: LogicalPoint,
     modifiers: ModifiersState,
     tx: mpsc::Sender<Command>,
@@ -745,6 +757,8 @@ impl App {
             edit: TextEdit::new(4 * 1024 * 1024),
             edit_scroll: 0.0,
             hits: Vec::new(),
+            disabled_hits: Vec::new(),
+            disabled_hint: None,
             pointer: LogicalPoint::new(0.0, 0.0),
             modifiers: ModifiersState::empty(),
             tx,
@@ -1311,6 +1325,67 @@ impl App {
                     Err(e) => self.notify(format!("Ошибка диалога файла: {e}")),
                 }
             }
+            Action::ExportSettings if !self.busy => {
+                match multilink_platform::settings_file_dialog(true) {
+                    Ok(Some(path)) => {
+                        let backup = serde_json::json!({
+                            "app": "EvertyMultiLink",
+                            "version": env!("CARGO_PKG_VERSION"),
+                            "exported_at": multilink_core::unix_now(),
+                            "settings": self.settings,
+                        });
+                        let result = serde_json::to_string_pretty(&backup)
+                            .map_err(|e| e.to_string())
+                            .and_then(|text| std::fs::write(&path, text).map_err(|e| e.to_string()));
+                        self.notify(match result {
+                            Ok(()) => "Все настройки успешно экспортированы".into(),
+                            Err(e) => format!("Ошибка экспорта: {e}"),
+                        });
+                    }
+                    Ok(None) => {}
+                    Err(e) => self.notify(format!("Ошибка диалога файла: {e}")),
+                }
+            }
+            Action::ImportSettings if !self.busy => {
+                match multilink_platform::settings_file_dialog(false) {
+                    Ok(Some(path)) => {
+                        use std::io::Read;
+                        let result = std::fs::File::open(path)
+                            .map_err(|e| e.to_string())
+                            .and_then(|file| {
+                                let mut text = String::new();
+                                file.take(16 * 1024 * 1024 + 1)
+                                    .read_to_string(&mut text)
+                                    .map_err(|e| e.to_string())?;
+                                let val: serde_json::Value = serde_json::from_str(&text)
+                                    .map_err(|e| format!("Некорректный JSON: {e}"))?;
+                                let settings_val = if let Some(inner) = val.get("settings") {
+                                    inner.clone()
+                                } else {
+                                    val
+                                };
+                                serde_json::from_value::<Settings>(settings_val)
+                                    .map_err(|e| format!("Неверный формат настроек: {e}"))
+                            });
+                        match result {
+                            Ok(mut loaded) => {
+                                if let Ok(rules) = multilink_core::normalize_direct_rules(&loaded.rules) {
+                                    loaded.rules = rules;
+                                }
+                                self.settings = loaded;
+                                self.save();
+                                if self.connected {
+                                    let _ = self.tx.send(Command::ApplySettings(self.settings.clone()));
+                                }
+                                self.notify("Все настройки успешно импортированы");
+                            }
+                            Err(e) => self.notify(format!("Ошибка импорта: {e}")),
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(e) => self.notify(format!("Ошибка диалога файла: {e}")),
+                }
+            }
             Action::ReplaceRoutes if !self.busy && self.modal == Some(Modal::RouteImport) => {
                 self.apply_imported_routes(true)
             }
@@ -1762,31 +1837,47 @@ impl App {
                 self.offset = 0;
                 self.save();
             }
-            Action::Toggle(i) if !self.connected && !self.busy => {
+            Action::Toggle(i) if !self.busy => {
+                if let Some(node) = self.settings.nodes.get(i) {
+                    if self.connected && node.enabled {
+                        let enabled_count = self.settings.nodes.iter().filter(|n| n.enabled).count();
+                        if enabled_count <= 1 {
+                            self.notify("Нельзя отключить единственный активный сервер во время работы VPN");
+                            return;
+                        }
+                    }
+                }
                 if let Some(node) = self.settings.nodes.get_mut(i) {
                     node.enabled = !node.enabled;
+                    self.save();
+                    if self.connected {
+                        let _ = self.tx.send(Command::ApplySettings(self.settings.clone()));
+                    }
                 }
-                self.save();
             }
-            Action::EnableAllServers | Action::DisableAllServers
-                if !self.connected && !self.busy =>
-            {
-                let enabled = action == Action::EnableAllServers;
-                if self
-                    .settings
-                    .nodes
-                    .iter()
-                    .any(|node| node.enabled != enabled)
-                {
+            Action::EnableAllServers if !self.busy => {
+                if self.settings.nodes.iter().any(|node| !node.enabled) {
                     for node in &mut self.settings.nodes {
-                        node.enabled = enabled;
+                        node.enabled = true;
                     }
                     self.save();
-                    self.notify(if enabled {
-                        "Все серверы включены"
-                    } else {
-                        "Все серверы выключены"
-                    });
+                    if self.connected {
+                        let _ = self.tx.send(Command::ApplySettings(self.settings.clone()));
+                    }
+                    self.notify("Все серверы включены");
+                }
+            }
+            Action::DisableAllServers if !self.busy => {
+                if self.connected {
+                    self.notify("Нельзя выключить все серверы при активном VPN");
+                    return;
+                }
+                if self.settings.nodes.iter().any(|node| node.enabled) {
+                    for node in &mut self.settings.nodes {
+                        node.enabled = false;
+                    }
+                    self.save();
+                    self.notify("Все серверы выключены");
                 }
             }
             Action::DeleteRule(i) if !self.busy => {
@@ -2092,6 +2183,8 @@ impl App {
         self.imported_routing = None;
         self.selecting_target = false;
         self.hits.clear();
+        self.disabled_hits.clear();
+        self.disabled_hint = None;
         self.hover = None;
         self.pressed = None;
         if let Some(w) = &self.window {
@@ -2139,6 +2232,13 @@ impl App {
                 }
             })
             .map(|(_, a)| *a)
+    }
+    fn disabled_hint_at_pointer(&self) -> Option<(LogicalRect, String)> {
+        self.disabled_hits
+            .iter()
+            .rev()
+            .find(|(r, _)| r.contains(self.pointer))
+            .cloned()
     }
     fn draw(&mut self) {
         let Some(window) = self.window.clone() else {
@@ -2484,8 +2584,11 @@ impl ApplicationHandler for App {
                     self.redraw();
                     return;
                 }
+                let old_disabled = self.disabled_hint.clone();
+                let disabled_at_pointer = self.disabled_hint_at_pointer();
+                self.disabled_hint = disabled_at_pointer.as_ref().map(|(_, hint)| hint.clone());
                 let hover = self.action_at_pointer();
-                if hover != self.hover {
+                if hover != self.hover || self.disabled_hint != old_disabled {
                     self.hover = hover;
                     self.redraw();
                 }
@@ -2498,6 +2601,8 @@ impl ApplicationHandler for App {
                         winit::window::CursorIcon::Text
                     } else if hover.is_some() {
                         winit::window::CursorIcon::Pointer
+                    } else if self.disabled_hint.is_some() {
+                        winit::window::CursorIcon::NotAllowed
                     } else {
                         winit::window::CursorIcon::Default
                     });
@@ -2505,6 +2610,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::CursorLeft { .. } => {
                 self.hover = None;
+                self.disabled_hint = None;
                 self.pressed = None;
                 self.redraw();
             }
@@ -3603,5 +3709,39 @@ mod routing_workflow_tests {
         assert!(rules.contains(&"DOMAIN-SUFFIX,ru,MULTILINK".into()));
         assert!(rules.contains(&"DOMAIN-SUFFIX,xn--p1ai,MULTILINK".into()));
         assert_eq!(rules[0], "DOMAIN-SUFFIX,ozon.com,COUNTRY-DE");
+    }
+    #[test]
+    fn test_connected_server_toggling_and_disabled_hints() {
+        let mut app = App::new(None);
+        let (commands, received) = mpsc::channel();
+        app.tx = commands;
+        let (_, receiver) = mpsc::channel();
+        app.rx = receiver;
+        app.settings = Settings::default();
+        let mut n1 = multilink_core::parse_subscription("vless://00000000-0000-4000-8000-000000000001@example.invalid:443#DE-01").unwrap().pop().unwrap();
+        n1.name = "Server 1".into();
+        n1.enabled = true;
+        let mut n2 = n1.clone();
+        n2.name = "Server 2".into();
+        n2.enabled = true;
+        app.settings.nodes = vec![n1, n2];
+        app.connected = true;
+
+        // Toggle server 1 while connected
+        app.action(Action::Toggle(0));
+        assert!(!app.settings.nodes[0].enabled);
+        assert!(matches!(received.try_recv(), Ok(Command::Save(_))));
+        assert!(matches!(received.try_recv(), Ok(Command::ApplySettings(_))));
+
+        // Attempting to toggle off the last remaining server should be refused
+        app.action(Action::Toggle(1));
+        assert!(app.settings.nodes[1].enabled);
+        assert!(app.notice.contains("Нельзя отключить единственный активный сервер"));
+
+        // Check disabled hints on Settings page
+        app.compact = false;
+        app.page = Page::Settings;
+        app.paint(1040.0, 740.0);
+        assert!(app.disabled_hits.iter().any(|(_, hint)| hint.contains("Отключите VPN")));
     }
 }

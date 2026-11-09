@@ -1,4 +1,4 @@
-use multilink_core::{Policy, Settings};
+use multilink_core::{Node, Policy, Settings};
 mod antigravity;
 pub use antigravity::*;
 mod access;
@@ -88,12 +88,13 @@ pub fn config(settings: &Settings, secret: &str) -> Result<String, String> {
     }
     // Keep Russian endpoints available for explicit COUNTRY-RU rules, but out
     // of the default pool so low-latency local nodes cannot capture VPN traffic.
-    let mut default_nodes: Vec<_> = nodes
+    let mut default_nodes: Vec<&Node> = nodes
         .iter()
-        .filter(|node| multilink_core::node_country(&node.name).as_deref() != Some("RU"))
+        .copied()
+        .filter(|node| !multilink_core::is_russian_node(node))
         .collect();
     if default_nodes.is_empty() {
-        return Err("Для общего VPN маршрута включите хотя бы один сервер вне России".into());
+        default_nodes = nodes.clone();
     }
     if settings.policy == Policy::Smart {
         default_nodes.sort_by_key(|node| std::cmp::Reverse(node.quality.score().unwrap_or(50)));
@@ -469,6 +470,15 @@ impl Engine {
             result.retry_tabs = true;
         }
         Ok(result)
+    }
+    /// Apply updated settings (e.g. toggled nodes, policies) without restarting Mihomo.
+    pub fn apply_settings(&mut self, settings: &Settings) -> Result<(), String> {
+        let mut candidate = settings.clone();
+        multilink_core::exclude_expired_access(&mut candidate);
+        Self::ensure_rule_data(&candidate)?;
+        self.apply_yaml(&config(&candidate, &self.secret)?)?;
+        self.settings = candidate;
+        Ok(())
     }
     pub fn metrics(&mut self) -> Result<Metrics, String> {
         if self

@@ -81,8 +81,70 @@ pub fn routing_file_dialog(save: bool) -> io::Result<Option<PathBuf>> {
     let end = file.iter().position(|ch| *ch == 0).unwrap_or(file.len());
     Ok(Some(std::ffi::OsString::from_wide(&file[..end]).into()))
 }
+
+#[cfg(windows)]
+pub fn settings_file_dialog(save: bool) -> io::Result<Option<PathBuf>> {
+    use std::os::windows::ffi::OsStringExt;
+    use windows_sys::Win32::UI::Controls::Dialogs::*;
+    let mut file = vec![0u16; 32768];
+    if save {
+        for (slot, ch) in file.iter_mut().zip("multilink-backup-settings.json".encode_utf16()) {
+            *slot = ch;
+        }
+    }
+    let filter: Vec<u16> = "Everty MultiLink Settings (*.json)\0*.json\0\0"
+        .encode_utf16()
+        .collect();
+    let extension: Vec<u16> = "json\0".encode_utf16().collect();
+    let title: Vec<u16> = if save {
+        "Экспорт всех настроек"
+    } else {
+        "Импорт всех настроек"
+    }
+    .encode_utf16()
+    .chain(Some(0))
+    .collect();
+    let mut dialog = OPENFILENAMEW::default();
+    dialog.lStructSize = std::mem::size_of::<OPENFILENAMEW>() as u32;
+    dialog.lpstrFile = file.as_mut_ptr();
+    dialog.nMaxFile = file.len() as u32;
+    dialog.lpstrFilter = filter.as_ptr();
+    dialog.lpstrDefExt = extension.as_ptr();
+    dialog.lpstrTitle = title.as_ptr();
+    dialog.Flags = OFN_EXPLORER
+        | OFN_NOCHANGEDIR
+        | OFN_PATHMUSTEXIST
+        | if save {
+            OFN_OVERWRITEPROMPT
+        } else {
+            OFN_FILEMUSTEXIST
+        };
+    let ok = unsafe {
+        if save {
+            GetSaveFileNameW(&mut dialog)
+        } else {
+            GetOpenFileNameW(&mut dialog)
+        }
+    };
+    if ok == 0 {
+        let error = unsafe { CommDlgExtendedError() };
+        return if error == 0 {
+            Ok(None)
+        } else {
+            Err(io::Error::other(format!("Диалог файла: {error}")))
+        };
+    }
+    let end = file.iter().position(|ch| *ch == 0).unwrap_or(file.len());
+    Ok(Some(std::ffi::OsString::from_wide(&file[..end]).into()))
+}
+
 #[cfg(not(windows))]
 pub fn routing_file_dialog(_: bool) -> io::Result<Option<PathBuf>> {
+    Err(io::Error::other("Диалог файлов доступен в Windows"))
+}
+
+#[cfg(not(windows))]
+pub fn settings_file_dialog(_: bool) -> io::Result<Option<PathBuf>> {
     Err(io::Error::other("Диалог файлов доступен в Windows"))
 }
 
