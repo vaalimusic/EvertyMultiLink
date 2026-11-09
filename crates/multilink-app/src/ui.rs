@@ -440,6 +440,11 @@ impl App {
             Page::Routing => route_rows.len(),
             Page::Subscriptions => self.settings.subscriptions.len(),
             Page::Help => help::COUNT,
+            Page::Settings => {
+                let total_content_height: f64 = 835.0;
+                let step: f64 = 35.0;
+                (total_content_height / step).ceil() as usize
+            }
             _ => 0,
         };
         let (top, height, visible) = match self.page {
@@ -464,6 +469,15 @@ impl App {
                 (((h - 595.0).max(100.0) - 47.0) / 59.0).floor().max(1.0) as usize,
             ),
             Page::Help => (154.0, (h - 330.0).max(40.0), 1),
+            Page::Settings => {
+                let step = 35.0;
+                let visible_height = (h - 150.0).max(80.0);
+                (
+                    125.0,
+                    (h - 160.0).max(40.0),
+                    (visible_height / step).floor().max(1.0) as usize,
+                )
+            }
             _ => (0.0, 0.0, 1),
         };
         self.offset = self.offset.min(count.saturating_sub(visible));
@@ -1656,13 +1670,17 @@ impl App {
                 }
             }
             Page::Settings => {
+                let scroll_y = self.offset as f64 * 35.0;
+                c.b.push_clip(LogicalRect::from_xywh(0.0, 115.0, w, (h - 130.0).max(10.0)));
+
                 // Card 1: Network Connection Modes
-                c.card(x, 125.0, width, 186.0);
-                c.text(x + 24.0, 141.0, "Подключение", 17.0, TEXT, true);
-                c.text(x + 24.0, 169.0, "Системный прокси", 14.0, TEXT, true);
+                let y1 = 125.0 - scroll_y;
+                c.card(x, y1, width, 212.0);
+                c.text(x + 24.0, y1 + 15.0, "Подключение", 17.0, TEXT, true);
+                c.text(x + 24.0, y1 + 44.0, "Системный прокси", 14.0, TEXT, true);
                 c.text(
                     x + 24.0,
-                    190.0,
+                    y1 + 65.0,
                     "Для браузеров и приложений с поддержкой прокси.",
                     11.0,
                     MUTED,
@@ -1670,44 +1688,45 @@ impl App {
                 );
                 c.toggle(
                     x + width - 68.0,
-                    166.0,
+                    y1 + 41.0,
                     self.settings.system_proxy,
                     Action::ToggleSystemProxy,
                 );
-                c.line(x + 24.0, 214.0, width - 48.0);
-                c.text(x + 24.0, 225.0, "TUN — весь трафик", 14.0, TEXT, true);
+                c.line(x + 24.0, y1 + 88.0, width - 48.0);
+                c.text(x + 24.0, y1 + 100.0, "TUN — весь трафик", 14.0, TEXT, true);
                 c.text(
                     x + 24.0,
-                    246.0,
+                    y1 + 121.0,
                     "Перехват сетевого стека (требуются права администратора).",
                     11.0,
                     MUTED,
                     false,
                 );
-                c.toggle(x + width - 68.0, 222.0, self.settings.tun, Action::ToggleTun);
-                c.line(x + 24.0, 270.0, width - 48.0);
-                c.text(x + 24.0, 281.0, "Режим «Только правила»", 14.0, TEXT, true);
+                c.toggle(x + width - 68.0, y1 + 97.0, self.settings.tun, Action::ToggleTun);
+                c.line(x + 24.0, y1 + 144.0, width - 48.0);
+                c.text(x + 24.0, y1 + 156.0, "Режим «Только правила»", 14.0, TEXT, true);
                 c.text(
                     x + 24.0,
-                    302.0,
-                    "Весь обычный трафик напрямую, VPN только для заданных в правилах сайтов/игр.",
+                    y1 + 177.0,
+                    "Обычный трафик напрямую, VPN — только для сайтов/игр из правил.",
                     11.0,
                     MUTED,
                     false,
                 );
                 c.toggle(
                     x + width - 68.0,
-                    278.0,
+                    y1 + 153.0,
                     self.settings.rules_only,
                     Action::ToggleRulesOnly,
                 );
 
                 // Card 2: Autostart & Autoconnect
-                c.card(x, 319.0, width, 114.0);
-                c.text(x + 24.0, 333.0, "Запуск программы", 16.0, TEXT, true);
+                let y2 = 349.0 - scroll_y;
+                c.card(x, y2, width, 148.0);
+                c.text(x + 24.0, y2 + 15.0, "Запуск программы", 16.0, TEXT, true);
                 c.text(
                     x + 24.0,
-                    357.0,
+                    y2 + 44.0,
                     "Запускать вместе с Windows",
                     14.0,
                     TEXT,
@@ -1715,7 +1734,7 @@ impl App {
                 );
                 c.text(
                     x + 24.0,
-                    378.0,
+                    y2 + 65.0,
                     "Приложение запускается в фоновом режиме в системном трее.",
                     11.0,
                     MUTED,
@@ -1723,14 +1742,14 @@ impl App {
                 );
                 c.toggle(
                     x + width - 68.0,
-                    354.0,
+                    y2 + 41.0,
                     self.autostart,
                     Action::ToggleAutostart,
                 );
-                c.line(x + 24.0, 400.0, width - 48.0);
+                c.line(x + 24.0, y2 + 88.0, width - 48.0);
                 c.text(
                     x + 24.0,
-                    411.0,
+                    y2 + 100.0,
                     "Автоподключение при старте",
                     14.0,
                     TEXT,
@@ -1738,32 +1757,33 @@ impl App {
                 );
                 c.text(
                     x + 24.0,
-                    432.0,
-                    "Автоматически включать VPN-соединение при запуске приложения.",
+                    y2 + 121.0,
+                    "Автоматически включать VPN-соединение при запуске программы.",
                     11.0,
                     MUTED,
                     false,
                 );
                 c.toggle(
                     x + width - 68.0,
-                    408.0,
+                    y2 + 97.0,
                     self.settings.autoconnect,
                     Action::ToggleAutoconnect,
                 );
 
                 // Card 3: PIN Protection
-                c.card(x, 441.0, width, 64.0);
+                let y3 = 509.0 - scroll_y;
+                c.card(x, y3, width, 70.0);
                 let pin_active = self.settings.pin_code.is_some();
-                c.text(x + 24.0, 453.0, "Защита настроек PIN-кодом", 14.0, TEXT, true);
+                c.text(x + 24.0, y3 + 15.0, "Защита настроек PIN-кодом", 14.0, TEXT, true);
                 c.text(
                     x + 24.0,
-                    476.0,
+                    y3 + 39.0,
                     if !pin_active {
-                        "PIN-код не установлен · изменение настроек и маршрутов доступно всем."
+                        "PIN не задан · изменение параметров доступно всем"
                     } else if self.pin_unlocked {
-                        "Защита активна (разблокировано) · изменения временно разрешены."
+                        "Разблокировано · изменения параметров временно разрешены"
                     } else {
-                        "Защита активна (заблокировано) · для любых изменений требуется PIN."
+                        "Заблокировано · для любых изменений требуется ввести PIN"
                     },
                     11.0,
                     if pin_active { ACCENT } else { MUTED },
@@ -1771,34 +1791,34 @@ impl App {
                 );
                 if !pin_active {
                     c.button(
-                        x + width - 150.0,
-                        454.0,
-                        136.0,
+                        x + width - 144.0,
+                        y3 + 16.0,
+                        130.0,
                         "Задать PIN",
                         Action::OpenSetPin,
                         false,
                     );
                 } else {
                     c.button(
-                        x + width - 290.0,
-                        454.0,
-                        96.0,
+                        x + width - 264.0,
+                        y3 + 16.0,
+                        82.0,
                         "Сменить",
                         Action::OpenSetPin,
                         false,
                     );
                     c.button(
-                        x + width - 188.0,
-                        454.0,
-                        86.0,
+                        x + width - 176.0,
+                        y3 + 16.0,
+                        72.0,
                         "Снять",
                         Action::RemovePin,
                         false,
                     );
                     c.button(
-                        x + width - 96.0,
-                        454.0,
-                        82.0,
+                        x + width - 98.0,
+                        y3 + 16.0,
+                        84.0,
                         if self.pin_unlocked { "Заблокир." } else { "Открыть" },
                         if self.pin_unlocked { Action::LockPin } else { Action::OpenSetPin },
                         false,
@@ -1806,10 +1826,11 @@ impl App {
                 }
 
                 // Card 4: Server Selection Policy
-                c.card(x, 513.0, width, 64.0);
+                let y4 = 591.0 - scroll_y;
+                c.card(x, y4, width, 70.0);
                 c.text(
                     x + 24.0,
-                    525.0,
+                    y4 + 15.0,
                     &format!("Выбор сервера: {}", self.settings.policy.label()),
                     14.0,
                     TEXT,
@@ -1817,7 +1838,7 @@ impl App {
                 );
                 c.text(
                     x + 24.0,
-                    548.0,
+                    y4 + 39.0,
                     policy_detail(self.settings.policy),
                     11.0,
                     MUTED,
@@ -1825,18 +1846,19 @@ impl App {
                 );
                 c.icon_button(
                     x + width - 52.0,
-                    526.0,
+                    y4 + 16.0,
                     14,
                     Action::Policy,
                     "Сменить алгоритм выбора сервера",
                 );
 
                 // Card 5: App Updates (GitHub Releases)
-                c.card(x, 585.0, width, 64.0);
+                let y5 = 673.0 - scroll_y;
+                c.card(x, y5, width, 70.0);
                 c.text(
                     x + 24.0,
-                    597.0,
-                    &format!("Everty MultiLink · версия {}", env!("CARGO_PKG_VERSION")),
+                    y5 + 15.0,
+                    &format!("Версия приложения: v{}", env!("CARGO_PKG_VERSION")),
                     14.0,
                     TEXT,
                     true,
@@ -1850,7 +1872,7 @@ impl App {
                 };
                 c.text(
                     x + 24.0,
-                    620.0,
+                    y5 + 39.0,
                     &update_sub,
                     11.0,
                     if self.update_available.is_some() { ACCENT } else { MUTED },
@@ -1859,7 +1881,7 @@ impl App {
                 if let Some(ver) = &self.update_available {
                     c.button(
                         x + width - 150.0,
-                        598.0,
+                        y5 + 16.0,
                         136.0,
                         &format!("Скачать {ver}"),
                         Action::OpenUpdateLink,
@@ -1868,7 +1890,7 @@ impl App {
                 } else {
                     c.button(
                         x + width - 130.0,
-                        598.0,
+                        y5 + 16.0,
                         116.0,
                         if self.checking_update { "Проверка…" } else { "Проверить" },
                         Action::CheckUpdate,
@@ -1876,29 +1898,35 @@ impl App {
                     );
                 }
 
-                // Card 6: Language & Backup
-                c.card(x, 657.0, width, 64.0);
-                c.text(x + 24.0, 672.0, "Язык:", 14.0, TEXT, true);
+                // Card 6: Language
+                let y6 = 755.0 - scroll_y;
+                c.card(x, y6, width, 64.0);
+                c.text(x + 24.0, y6 + 22.0, "Язык интерфейса:", 14.0, TEXT, true);
                 c.text(
-                    x + 72.0,
-                    672.0,
+                    x + 162.0,
+                    y6 + 22.0,
                     i18n::label(&self.settings.language),
                     14.0,
                     ACCENT,
                     true,
                 );
-                c.icon_button(x + 195.0, 670.0, 14, Action::Language, "Изменить язык");
+                c.icon_button(x + width - 52.0, y6 + 13.0, 14, Action::Language, "Изменить язык");
+
+                // Card 7: Backup & Restore
+                let y7 = 831.0 - scroll_y;
+                c.card(x, y7, width, 70.0);
+                c.text(x + 24.0, y7 + 15.0, "Резервная копия настроек", 14.0, TEXT, true);
                 c.text(
-                    x + 250.0,
-                    672.0,
-                    "Резервная копия настроек:",
-                    13.0,
+                    x + 24.0,
+                    y7 + 39.0,
+                    "Экспорт всех параметров, правил и PIN в файл или импорт из него.",
+                    11.0,
                     MUTED,
                     false,
                 );
                 c.button(
                     x + width - 216.0,
-                    670.0,
+                    y7 + 16.0,
                     98.0,
                     "Экспорт",
                     Action::ExportSettings,
@@ -1906,7 +1934,7 @@ impl App {
                 );
                 c.button(
                     x + width - 108.0,
-                    670.0,
+                    y7 + 16.0,
                     98.0,
                     "Импорт",
                     Action::ImportSettings,
@@ -1914,9 +1942,10 @@ impl App {
                 );
 
                 // Bottom notes & actions
+                let y8 = 915.0 - scroll_y;
                 c.text(
                     x,
-                    736.0,
+                    y8 + 8.0,
                     if self.connected {
                         "Перед изменением сетевого режима отключитесь от VPN."
                     } else {
@@ -1928,11 +1957,15 @@ impl App {
                 );
                 c.icon_button(
                     x + width - 42.0,
-                    726.0,
+                    y8,
                     2,
                     Action::ClearServers,
                     "Очистить библиотеку серверов",
                 );
+
+                let _ = c.b.pop_clip();
+                c.hits.retain(|(rect, _)| rect.top() >= 115.0 && rect.bottom() <= h - 10.0);
+                c.disabled_hits.retain(|(rect, _)| rect.top() >= 115.0 && rect.bottom() <= h - 10.0);
             }
         }
         c.line(x, h - 70.0, width);
