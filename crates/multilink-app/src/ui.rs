@@ -447,43 +447,48 @@ impl App {
             }
             _ => 0,
         };
-        let (top, height, visible) = match self.page {
+        let (bar_x, top, height, visible) = match self.page {
             Page::Servers => (
+                w - 48.0,
                 265.0,
                 (h - 368.0).max(40.0),
                 ((h - 357.0) / 59.0).floor().max(1.0) as usize,
             ),
             Page::Routing => (
+                w - 48.0,
                 354.0,
                 (h - 460.0).max(40.0),
                 ((h - 458.0) / 58.0).floor().max(1.0) as usize,
             ),
             Page::Subscriptions => (
+                w - 48.0,
                 323.0,
                 (h - 426.0).max(40.0),
                 ((h - 424.0) / 116.0).floor().max(1.0) as usize,
             ),
             Page::Dashboard => (
+                w - 48.0,
                 548.0,
                 (h - 652.0).max(35.0),
                 (((h - 595.0).max(100.0) - 47.0) / 59.0).floor().max(1.0) as usize,
             ),
-            Page::Help => (154.0, (h - 330.0).max(40.0), 1),
+            Page::Help => (w - 48.0, 154.0, (h - 330.0).max(40.0), 1),
             Page::Settings => {
-                let step = 35.0;
-                let visible_height = (h - 150.0).max(80.0);
+                let step: f64 = 35.0;
+                let visible_height = (h - 200.0).max(80.0);
                 (
-                    125.0,
-                    (h - 160.0).max(40.0),
+                    w - 24.0,
+                    120.0,
+                    (h - 205.0).max(40.0),
                     (visible_height / step).floor().max(1.0) as usize,
                 )
             }
-            _ => (0.0, 0.0, 1),
+            _ => (w - 48.0, 0.0, 0.0, 1),
         };
         self.offset = self.offset.min(count.saturating_sub(visible));
         self.scroll_bar = if !self.compact && self.modal.is_none() {
             scrolling::ScrollBar::new(
-                LogicalRect::from_xywh(w - 48.0, top, 7.0, height),
+                LogicalRect::from_xywh(bar_x, top, 6.0, height),
                 count,
                 visible,
                 self.offset,
@@ -1670,12 +1675,17 @@ impl App {
                 }
             }
             Page::Settings => {
+                let page_start_hits = c.hits.len();
+                let page_start_disabled = c.disabled_hits.len();
+                let card_w = width - 26.0;
                 let scroll_y = self.offset as f64 * 35.0;
-                c.b.push_clip(LogicalRect::from_xywh(0.0, 115.0, w, (h - 130.0).max(10.0)));
+                let clip_top = 115.0;
+                let clip_bottom = (h - 75.0).max(clip_top + 10.0);
+                c.b.push_clip(LogicalRect::from_xywh(0.0, clip_top, w, clip_bottom - clip_top));
 
                 // Card 1: Network Connection Modes
                 let y1 = 125.0 - scroll_y;
-                c.card(x, y1, width, 212.0);
+                c.card(x, y1, card_w, 212.0);
                 c.text(x + 24.0, y1 + 15.0, "Подключение", 17.0, TEXT, true);
                 c.text(x + 24.0, y1 + 44.0, "Системный прокси", 14.0, TEXT, true);
                 c.text(
@@ -1687,12 +1697,12 @@ impl App {
                     false,
                 );
                 c.toggle(
-                    x + width - 68.0,
+                    x + card_w - 68.0,
                     y1 + 41.0,
                     self.settings.system_proxy,
                     Action::ToggleSystemProxy,
                 );
-                c.line(x + 24.0, y1 + 88.0, width - 48.0);
+                c.line(x + 24.0, y1 + 88.0, card_w - 48.0);
                 c.text(x + 24.0, y1 + 100.0, "TUN — весь трафик", 14.0, TEXT, true);
                 c.text(
                     x + 24.0,
@@ -1702,8 +1712,8 @@ impl App {
                     MUTED,
                     false,
                 );
-                c.toggle(x + width - 68.0, y1 + 97.0, self.settings.tun, Action::ToggleTun);
-                c.line(x + 24.0, y1 + 144.0, width - 48.0);
+                c.toggle(x + card_w - 68.0, y1 + 97.0, self.settings.tun, Action::ToggleTun);
+                c.line(x + 24.0, y1 + 144.0, card_w - 48.0);
                 c.text(x + 24.0, y1 + 156.0, "Режим «Только правила»", 14.0, TEXT, true);
                 c.text(
                     x + 24.0,
@@ -1714,7 +1724,7 @@ impl App {
                     false,
                 );
                 c.toggle(
-                    x + width - 68.0,
+                    x + card_w - 68.0,
                     y1 + 153.0,
                     self.settings.rules_only,
                     Action::ToggleRulesOnly,
@@ -1722,7 +1732,7 @@ impl App {
 
                 // Card 2: Autostart & Autoconnect
                 let y2 = 349.0 - scroll_y;
-                c.card(x, y2, width, 148.0);
+                c.card(x, y2, card_w, 148.0);
                 c.text(x + 24.0, y2 + 15.0, "Запуск программы", 16.0, TEXT, true);
                 c.text(
                     x + 24.0,
@@ -1741,12 +1751,12 @@ impl App {
                     false,
                 );
                 c.toggle(
-                    x + width - 68.0,
+                    x + card_w - 68.0,
                     y2 + 41.0,
                     self.autostart,
                     Action::ToggleAutostart,
                 );
-                c.line(x + 24.0, y2 + 88.0, width - 48.0);
+                c.line(x + 24.0, y2 + 88.0, card_w - 48.0);
                 c.text(
                     x + 24.0,
                     y2 + 100.0,
@@ -1764,7 +1774,7 @@ impl App {
                     false,
                 );
                 c.toggle(
-                    x + width - 68.0,
+                    x + card_w - 68.0,
                     y2 + 97.0,
                     self.settings.autoconnect,
                     Action::ToggleAutoconnect,
@@ -1772,7 +1782,7 @@ impl App {
 
                 // Card 3: PIN Protection
                 let y3 = 509.0 - scroll_y;
-                c.card(x, y3, width, 70.0);
+                c.card(x, y3, card_w, 70.0);
                 let pin_active = self.settings.pin_code.is_some();
                 c.text(x + 24.0, y3 + 15.0, "Защита настроек PIN-кодом", 14.0, TEXT, true);
                 c.text(
@@ -1791,7 +1801,7 @@ impl App {
                 );
                 if !pin_active {
                     c.button(
-                        x + width - 144.0,
+                        x + card_w - 144.0,
                         y3 + 16.0,
                         130.0,
                         "Задать PIN",
@@ -1800,7 +1810,7 @@ impl App {
                     );
                 } else {
                     c.button(
-                        x + width - 264.0,
+                        x + card_w - 264.0,
                         y3 + 16.0,
                         82.0,
                         "Сменить",
@@ -1808,7 +1818,7 @@ impl App {
                         false,
                     );
                     c.button(
-                        x + width - 176.0,
+                        x + card_w - 176.0,
                         y3 + 16.0,
                         72.0,
                         "Снять",
@@ -1816,7 +1826,7 @@ impl App {
                         false,
                     );
                     c.button(
-                        x + width - 98.0,
+                        x + card_w - 98.0,
                         y3 + 16.0,
                         84.0,
                         if self.pin_unlocked { "Заблокир." } else { "Открыть" },
@@ -1827,7 +1837,7 @@ impl App {
 
                 // Card 4: Server Selection Policy
                 let y4 = 591.0 - scroll_y;
-                c.card(x, y4, width, 70.0);
+                c.card(x, y4, card_w, 70.0);
                 c.text(
                     x + 24.0,
                     y4 + 15.0,
@@ -1845,7 +1855,7 @@ impl App {
                     false,
                 );
                 c.icon_button(
-                    x + width - 52.0,
+                    x + card_w - 52.0,
                     y4 + 16.0,
                     14,
                     Action::Policy,
@@ -1854,7 +1864,7 @@ impl App {
 
                 // Card 5: App Updates (GitHub Releases)
                 let y5 = 673.0 - scroll_y;
-                c.card(x, y5, width, 70.0);
+                c.card(x, y5, card_w, 70.0);
                 c.text(
                     x + 24.0,
                     y5 + 15.0,
@@ -1880,7 +1890,7 @@ impl App {
                 );
                 if let Some(ver) = &self.update_available {
                     c.button(
-                        x + width - 150.0,
+                        x + card_w - 150.0,
                         y5 + 16.0,
                         136.0,
                         &format!("Скачать {ver}"),
@@ -1889,7 +1899,7 @@ impl App {
                     );
                 } else {
                     c.button(
-                        x + width - 130.0,
+                        x + card_w - 130.0,
                         y5 + 16.0,
                         116.0,
                         if self.checking_update { "Проверка…" } else { "Проверить" },
@@ -1900,7 +1910,7 @@ impl App {
 
                 // Card 6: Language
                 let y6 = 755.0 - scroll_y;
-                c.card(x, y6, width, 64.0);
+                c.card(x, y6, card_w, 64.0);
                 c.text(x + 24.0, y6 + 22.0, "Язык интерфейса:", 14.0, TEXT, true);
                 c.text(
                     x + 162.0,
@@ -1910,11 +1920,11 @@ impl App {
                     ACCENT,
                     true,
                 );
-                c.icon_button(x + width - 52.0, y6 + 13.0, 14, Action::Language, "Изменить язык");
+                c.icon_button(x + card_w - 52.0, y6 + 13.0, 14, Action::Language, "Изменить язык");
 
                 // Card 7: Backup & Restore
                 let y7 = 831.0 - scroll_y;
-                c.card(x, y7, width, 70.0);
+                c.card(x, y7, card_w, 70.0);
                 c.text(x + 24.0, y7 + 15.0, "Резервная копия настроек", 14.0, TEXT, true);
                 c.text(
                     x + 24.0,
@@ -1925,7 +1935,7 @@ impl App {
                     false,
                 );
                 c.button(
-                    x + width - 216.0,
+                    x + card_w - 216.0,
                     y7 + 16.0,
                     98.0,
                     "Экспорт",
@@ -1933,7 +1943,7 @@ impl App {
                     false,
                 );
                 c.button(
-                    x + width - 108.0,
+                    x + card_w - 108.0,
                     y7 + 16.0,
                     98.0,
                     "Импорт",
@@ -1956,7 +1966,7 @@ impl App {
                     false,
                 );
                 c.icon_button(
-                    x + width - 42.0,
+                    x + card_w - 42.0,
                     y8,
                     2,
                     Action::ClearServers,
@@ -1964,8 +1974,24 @@ impl App {
                 );
 
                 let _ = c.b.pop_clip();
-                c.hits.retain(|(rect, _)| rect.top() >= 115.0 && rect.bottom() <= h - 10.0);
-                c.disabled_hits.retain(|(rect, _)| rect.top() >= 115.0 && rect.bottom() <= h - 10.0);
+                let mut i = page_start_hits;
+                while i < c.hits.len() {
+                    let (rect, _) = &c.hits[i];
+                    if rect.bottom() <= clip_top || rect.top() >= clip_bottom {
+                        c.hits.remove(i);
+                    } else {
+                        i += 1;
+                    }
+                }
+                let mut j = page_start_disabled;
+                while j < c.disabled_hits.len() {
+                    let (rect, _) = &c.disabled_hits[j];
+                    if rect.bottom() <= clip_top || rect.top() >= clip_bottom {
+                        c.disabled_hits.remove(j);
+                    } else {
+                        j += 1;
+                    }
+                }
             }
         }
         c.line(x, h - 70.0, width);
