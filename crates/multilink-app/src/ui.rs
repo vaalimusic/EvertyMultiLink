@@ -155,7 +155,7 @@ impl Canvas<'_> {
     fn toggle(&mut self, x: f64, y: f64, on: bool, action: Action) {
         self.button(x, y, 54.0, "", action, false);
         let enabled = match action {
-            Action::ToggleAutostart => true,
+            Action::ToggleAutostart | Action::ToggleAutoconnect | Action::ToggleRulesOnly => true,
             Action::Toggle(_) => !self.busy,
             _ => !self.locked,
         };
@@ -269,7 +269,16 @@ impl Canvas<'_> {
             Action::ShareNode(_) | Action::ShareSubscription(_) => true,
             Action::OpenLanSync | Action::CopyQrContent => !self.busy,
             Action::RankServers => true,
-            Action::Compact | Action::Expanded | Action::ToggleAutostart => true,
+            Action::Compact
+            | Action::Expanded
+            | Action::ToggleAutostart
+            | Action::ToggleAutoconnect
+            | Action::ToggleRulesOnly
+            | Action::OpenSetPin
+            | Action::RemovePin
+            | Action::LockPin
+            | Action::CheckUpdate
+            | Action::OpenUpdateLink => true,
             Action::Connect | Action::Close | Action::Paste | Action::Submit => !self.busy,
             Action::SelectRuleTarget(_) | Action::TargetPage(_) => !self.busy,
             Action::RefreshSubscription(_) => !self.busy,
@@ -727,6 +736,16 @@ impl App {
             Page::Help => ("Инструкция", "Пошаговые ответы: что включить и зачем."),
         };
         c.text(x, 28.0, title, 27.0, TEXT, true);
+        if let Some(ver) = &self.update_available {
+            c.button(
+                w - 510.0,
+                32.0,
+                165.0,
+                &format!("⚡ Доступно {ver}"),
+                Action::OpenUpdateLink,
+                true,
+            );
+        }
         c.button(w - 335.0, 32.0, 148.0, "Компактно", Action::Compact, false);
         c.text(x, 69.0, sub, 13.0, MUTED, false);
         c.badge(
@@ -1637,39 +1656,58 @@ impl App {
                 }
             }
             Page::Settings => {
-                c.card(x, 125.0, width, 168.0);
-                c.text(x + 24.0, 143.0, "Подключение", 18.0, TEXT, true);
-                c.text(x + 24.0, 175.0, "Системный прокси", 14.0, TEXT, true);
+                // Card 1: Network Connection Modes
+                c.card(x, 125.0, width, 186.0);
+                c.text(x + 24.0, 141.0, "Подключение", 17.0, TEXT, true);
+                c.text(x + 24.0, 169.0, "Системный прокси", 14.0, TEXT, true);
                 c.text(
                     x + 24.0,
-                    198.0,
+                    190.0,
                     "Для браузеров и приложений с поддержкой прокси.",
                     11.0,
                     MUTED,
                     false,
                 );
                 c.toggle(
-                    w - 112.0,
-                    172.0,
+                    x + width - 68.0,
+                    166.0,
                     self.settings.system_proxy,
                     Action::ToggleSystemProxy,
                 );
-                c.line(x + 24.0, 224.0, width - 48.0);
-                c.text(x + 24.0, 237.0, "TUN — весь трафик", 14.0, TEXT, true);
+                c.line(x + 24.0, 214.0, width - 48.0);
+                c.text(x + 24.0, 225.0, "TUN — весь трафик", 14.0, TEXT, true);
                 c.text(
                     x + 24.0,
-                    260.0,
-                    "Потребуются права администратора Windows.",
+                    246.0,
+                    "Перехват сетевого стека (требуются права администратора).",
                     11.0,
                     MUTED,
                     false,
                 );
-                c.toggle(w - 112.0, 234.0, self.settings.tun, Action::ToggleTun);
-
-                c.card(x, 301.0, width, 66.0);
+                c.toggle(x + width - 68.0, 222.0, self.settings.tun, Action::ToggleTun);
+                c.line(x + 24.0, 270.0, width - 48.0);
+                c.text(x + 24.0, 281.0, "Режим «Только правила»", 14.0, TEXT, true);
                 c.text(
                     x + 24.0,
-                    315.0,
+                    302.0,
+                    "Весь обычный трафик напрямую, VPN только для заданных в правилах сайтов/игр.",
+                    11.0,
+                    MUTED,
+                    false,
+                );
+                c.toggle(
+                    x + width - 68.0,
+                    278.0,
+                    self.settings.rules_only,
+                    Action::ToggleRulesOnly,
+                );
+
+                // Card 2: Autostart & Autoconnect
+                c.card(x, 319.0, width, 114.0);
+                c.text(x + 24.0, 333.0, "Запуск программы", 16.0, TEXT, true);
+                c.text(
+                    x + 24.0,
+                    357.0,
                     "Запускать вместе с Windows",
                     14.0,
                     TEXT,
@@ -1677,74 +1715,208 @@ impl App {
                 );
                 c.text(
                     x + 24.0,
-                    338.0,
-                    "Приложение запустится в трее.",
+                    378.0,
+                    "Приложение запускается в фоновом режиме в системном трее.",
                     11.0,
                     MUTED,
                     false,
                 );
-                c.toggle(w - 112.0, 314.0, self.autostart, Action::ToggleAutostart);
-
-                c.card(x, 375.0, width, 60.0);
-                c.text(x + 24.0, 394.0, "Язык интерфейса", 14.0, TEXT, true);
-                c.text(
-                    x + 275.0,
-                    394.0,
-                    i18n::label(&self.settings.language),
-                    14.0,
-                    ACCENT,
-                    true,
+                c.toggle(
+                    x + width - 68.0,
+                    354.0,
+                    self.autostart,
+                    Action::ToggleAutostart,
                 );
-                c.icon_button(w - 94.0, 386.0, 14, Action::Language, "Изменить язык");
-
-                c.card(x, 443.0, width, 62.0);
-                c.text(x + 24.0, 455.0, "Выбор сервера", 14.0, TEXT, true);
+                c.line(x + 24.0, 400.0, width - 48.0);
                 c.text(
                     x + 24.0,
-                    477.0,
-                    self.settings.policy.label(),
-                    13.0,
-                    ACCENT,
+                    411.0,
+                    "Автоподключение при старте",
+                    14.0,
+                    TEXT,
                     true,
                 );
+                c.text(
+                    x + 24.0,
+                    432.0,
+                    "Автоматически включать VPN-соединение при запуске приложения.",
+                    11.0,
+                    MUTED,
+                    false,
+                );
+                c.toggle(
+                    x + width - 68.0,
+                    408.0,
+                    self.settings.autoconnect,
+                    Action::ToggleAutoconnect,
+                );
+
+                // Card 3: PIN Protection
+                c.card(x, 441.0, width, 64.0);
+                let pin_active = self.settings.pin_code.is_some();
+                c.text(x + 24.0, 453.0, "Защита настроек PIN-кодом", 14.0, TEXT, true);
+                c.text(
+                    x + 24.0,
+                    476.0,
+                    if !pin_active {
+                        "PIN-код не установлен · изменение настроек и маршрутов доступно всем."
+                    } else if self.pin_unlocked {
+                        "Защита активна (разблокировано) · изменения временно разрешены."
+                    } else {
+                        "Защита активна (заблокировано) · для любых изменений требуется PIN."
+                    },
+                    11.0,
+                    if pin_active { ACCENT } else { MUTED },
+                    false,
+                );
+                if !pin_active {
+                    c.button(
+                        x + width - 150.0,
+                        454.0,
+                        136.0,
+                        "Задать PIN",
+                        Action::OpenSetPin,
+                        false,
+                    );
+                } else {
+                    c.button(
+                        x + width - 290.0,
+                        454.0,
+                        96.0,
+                        "Сменить",
+                        Action::OpenSetPin,
+                        false,
+                    );
+                    c.button(
+                        x + width - 188.0,
+                        454.0,
+                        86.0,
+                        "Снять",
+                        Action::RemovePin,
+                        false,
+                    );
+                    c.button(
+                        x + width - 96.0,
+                        454.0,
+                        82.0,
+                        if self.pin_unlocked { "Заблокир." } else { "Открыть" },
+                        if self.pin_unlocked { Action::LockPin } else { Action::OpenSetPin },
+                        false,
+                    );
+                }
+
+                // Card 4: Server Selection Policy
+                c.card(x, 513.0, width, 64.0);
+                c.text(
+                    x + 24.0,
+                    525.0,
+                    &format!("Выбор сервера: {}", self.settings.policy.label()),
+                    14.0,
+                    TEXT,
+                    true,
+                );
+                c.text(
+                    x + 24.0,
+                    548.0,
+                    policy_detail(self.settings.policy),
+                    11.0,
+                    MUTED,
+                    false,
+                );
                 c.icon_button(
-                    w - 94.0,
-                    455.0,
+                    x + width - 52.0,
+                    526.0,
                     14,
                     Action::Policy,
                     "Сменить алгоритм выбора сервера",
                 );
 
-                c.card(x, 513.0, width, 68.0);
-                c.text(x + 24.0, 526.0, "Резервная копия всех настроек", 14.0, TEXT, true);
+                // Card 5: App Updates (GitHub Releases)
+                c.card(x, 585.0, width, 64.0);
                 c.text(
                     x + 24.0,
-                    551.0,
-                    "Экспорт и импорт серверов, подписок и правил в JSON.",
+                    597.0,
+                    &format!("Everty MultiLink · версия {}", env!("CARGO_PKG_VERSION")),
+                    14.0,
+                    TEXT,
+                    true,
+                );
+                let update_sub = if self.checking_update {
+                    "Проверка обновлений на GitHub…".to_string()
+                } else if let Some(ver) = &self.update_available {
+                    format!("Доступна новая версия {ver} на GitHub!")
+                } else {
+                    "У вас установлена последняя официальная версия.".to_string()
+                };
+                c.text(
+                    x + 24.0,
+                    620.0,
+                    &update_sub,
                     11.0,
+                    if self.update_available.is_some() { ACCENT } else { MUTED },
+                    false,
+                );
+                if let Some(ver) = &self.update_available {
+                    c.button(
+                        x + width - 150.0,
+                        598.0,
+                        136.0,
+                        &format!("Скачать {ver}"),
+                        Action::OpenUpdateLink,
+                        true,
+                    );
+                } else {
+                    c.button(
+                        x + width - 130.0,
+                        598.0,
+                        116.0,
+                        if self.checking_update { "Проверка…" } else { "Проверить" },
+                        Action::CheckUpdate,
+                        false,
+                    );
+                }
+
+                // Card 6: Language & Backup
+                c.card(x, 657.0, width, 64.0);
+                c.text(x + 24.0, 672.0, "Язык:", 14.0, TEXT, true);
+                c.text(
+                    x + 72.0,
+                    672.0,
+                    i18n::label(&self.settings.language),
+                    14.0,
+                    ACCENT,
+                    true,
+                );
+                c.icon_button(x + 195.0, 670.0, 14, Action::Language, "Изменить язык");
+                c.text(
+                    x + 250.0,
+                    672.0,
+                    "Резервная копия настроек:",
+                    13.0,
                     MUTED,
                     false,
                 );
                 c.button(
-                    w - 236.0,
-                    528.0,
+                    x + width - 216.0,
+                    670.0,
                     98.0,
                     "Экспорт",
                     Action::ExportSettings,
                     false,
                 );
                 c.button(
-                    w - 126.0,
-                    528.0,
+                    x + width - 108.0,
+                    670.0,
                     98.0,
                     "Импорт",
                     Action::ImportSettings,
                     false,
                 );
 
+                // Bottom notes & actions
                 c.text(
                     x,
-                    600.0,
+                    736.0,
                     if self.connected {
                         "Перед изменением сетевого режима отключитесь от VPN."
                     } else {
@@ -1755,8 +1927,8 @@ impl App {
                     false,
                 );
                 c.icon_button(
-                    w - 72.0,
-                    588.0,
+                    x + width - 42.0,
+                    726.0,
                     2,
                     Action::ClearServers,
                     "Очистить библиотеку серверов",
@@ -2038,11 +2210,14 @@ impl App {
                 return c.b.finish();
             }
             let note = *modal == Modal::Note;
+            let pin_auth = *modal == Modal::PinAuth;
+            let set_pin = *modal == Modal::SetPin;
+            let is_pin = pin_auth || set_pin;
             let subscription = matches!(
                 modal,
                 Modal::SubscriptionName | Modal::SubscriptionUrl | Modal::AccessCode
             );
-            let import = *modal == Modal::Import || note || subscription;
+            let import = *modal == Modal::Import || note || subscription || is_pin;
             let ru = *modal == Modal::RuRule;
             let process = *modal == Modal::ProcessRule;
             let route_fields = matches!(modal, Modal::Rule | Modal::ProcessRule);
@@ -2052,6 +2227,14 @@ impl App {
                 my + 23.0,
                 if note {
                     "Заметка к правилу"
+                } else if pin_auth {
+                    "Ввод PIN-кода"
+                } else if set_pin {
+                    if self.settings.pin_code.is_some() {
+                        "Смена PIN-кода"
+                    } else {
+                        "Установка PIN-кода"
+                    }
                 } else if *modal == Modal::AccessCode {
                     "Активация доступа"
                 } else if *modal == Modal::SubscriptionName {
@@ -2106,6 +2289,10 @@ impl App {
                     my + 68.0,
                     if note {
                         "Короткая заметка: назначение правила, приложение или пояснение."
+                    } else if pin_auth {
+                        "Введите PIN-код для доступа к управлению настройками и маршрутами."
+                    } else if set_pin {
+                        "Задайте PIN-код (от 4 символов) для блокировки изменений."
                     } else if *modal == Modal::AccessCode {
                         "Ключ из 6 символов. Например: AB7K9X. Регистр букв не важен."
                     } else if *modal == Modal::SubscriptionName {
@@ -2156,6 +2343,10 @@ impl App {
                     field.contains(self.pointer),
                     if note {
                         "Например: основной и вспомогательный процессы приложения"
+                    } else if pin_auth {
+                        "PIN-код"
+                    } else if set_pin {
+                        "Новый PIN-код"
                     } else if *modal == Modal::AccessCode {
                         "AB7K9X"
                     } else if *modal == Modal::SubscriptionName {
@@ -2285,6 +2476,10 @@ impl App {
                 149.0,
                 if self.busy {
                     "Проверка…"
+                } else if pin_auth {
+                    "Подтвердить"
+                } else if set_pin {
+                    "Сохранить"
                 } else if note {
                     "Готово"
                 } else if *modal == Modal::AccessCode {

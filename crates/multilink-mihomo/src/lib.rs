@@ -121,8 +121,56 @@ pub fn config(settings: &Settings, secret: &str) -> Result<String, String> {
         }
     }
     let mut rules = multilink_core::normalize_direct_rules(&settings.rules)?;
-    rules.push("MATCH,MULTILINK".into());
+    let match_target = if settings.rules_only { "DIRECT" } else { "MULTILINK" };
+    rules.push(format!("MATCH,{match_target}"));
     let mut groups = vec![group];
+    let default_proxy_names: Vec<_> = default_nodes.iter().map(|n| &proxy_names[&n.name]).collect();
+    if rules.iter().any(|r| r.split(',').nth(2) == Some("MODE-SMART")) {
+        groups.push(json!({
+            "name": "MODE-SMART",
+            "type": "url-test",
+            "proxies": default_proxy_names,
+            "url": "https://www.gstatic.com/generate_204",
+            "interval": 30,
+            "tolerance": settings.smart_tolerance.max(10),
+            "max-failed-times": 2,
+            "timeout": 4000,
+            "lazy": false
+        }));
+    }
+    if rules.iter().any(|r| r.split(',').nth(2) == Some("MODE-LATENCY")) {
+        groups.push(json!({
+            "name": "MODE-LATENCY",
+            "type": "url-test",
+            "proxies": default_proxy_names,
+            "url": "https://www.gstatic.com/generate_204",
+            "interval": 20,
+            "tolerance": 25,
+            "timeout": 2500,
+            "lazy": false
+        }));
+    }
+    if rules.iter().any(|r| r.split(',').nth(2) == Some("MODE-STABLE")) {
+        groups.push(json!({
+            "name": "MODE-STABLE",
+            "type": "fallback",
+            "proxies": default_proxy_names,
+            "url": "https://www.gstatic.com/generate_204",
+            "interval": 60,
+            "lazy": false
+        }));
+    }
+    if rules.iter().any(|r| r.split(',').nth(2) == Some("MODE-BALANCE")) {
+        groups.push(json!({
+            "name": "MODE-BALANCE",
+            "type": "load-balance",
+            "strategy": "round-robin",
+            "proxies": default_proxy_names,
+            "url": "https://www.gstatic.com/generate_204",
+            "interval": 60,
+            "lazy": false
+        }));
+    }
     for (code, _) in multilink_core::available_countries(&settings.nodes)
         .into_iter()
         .filter(|(code, _)| {
@@ -286,6 +334,8 @@ impl Engine {
         let client = Client::builder()
             .no_proxy()
             .timeout(Duration::from_secs(3))
+            .pool_idle_timeout(Some(Duration::from_secs(15)))
+            .tcp_keepalive(Some(Duration::from_secs(15)))
             .build()
             .map_err(|_| "Ошибка HTTP-клиента")?;
         std::fs::create_dir_all(&dir).map_err(|_| "Нет доступа к папке ядра")?;
@@ -348,12 +398,17 @@ impl Engine {
         Err(if settings.tun { "Не удалось запустить TUN-адаптер за 12 секунд. Проверьте права администратора и другие VPN" } else { "Ядро не ответило за 12 секунд" }.into())
     }
     fn get(&self, path: &str) -> Result<Value, String> {
-        self.client
-            .get(format!("http://127.0.0.1:{CONTROLLER}/{path}"))
-            .bearer_auth(&self.secret)
-            .send()
-            .and_then(|r| r.error_for_status())
-            .and_then(|r| r.json())
+        let url = format!("http://127.0.0.1:{CONTROLLER}/{path}");
+        let send_req = || {
+            self.client
+                .get(&url)
+                .bearer_auth(&self.secret)
+                .send()
+                .and_then(|r| r.error_for_status())
+                .and_then(|r| r.json())
+        };
+        send_req()
+            .or_else(|_| send_req())
             .map_err(|_| "Нет связи с локальным API Mihomo".to_owned())
     }
     fn apply_yaml(&mut self, contents: &str) -> Result<(), String> {
@@ -479,6 +534,12 @@ impl Engine {
         self.apply_yaml(&config(&candidate, &self.secret)?)?;
         self.settings = candidate;
         Ok(())
+    }
+    pub fn is_alive(&mut self) -> bool {
+        self.child
+            .try_wait()
+            .map(|status| status.is_none())
+            .unwrap_or(false)
     }
     pub fn metrics(&mut self) -> Result<Metrics, String> {
         if self
@@ -1140,3 +1201,70 @@ fn server_and_country_with_same_name_are_distinct_routes() {
         "DOMAIN-SUFFIX,group.example,COUNTRY-US".into()
     )));
 }
+
+pub fn is_newer_version(remote: &str, current: &str) -> bool {
+    let parse_parts = |v: &str| -> Vec<u32> {
+        v.trim_start_matches('v')
+            .split('.')
+            .map(|p| p.chars().take_while(|c| c.is_ascii_digit()).collect::<String>())
+            .filter_map(|s| s.parse::<u32>().ok())
+            .collect()
+    };
+    let remote_parts = parse_parts(remote);
+    let current_parts = parse_parts(current);
+    for (r, c) in remote_parts.iter().zip(current_parts.iter()) {
+        if r > c {
+            return true;
+        } else if r < c {
+            return false;
+        }
+    }
+    remote_parts.len() > current_parts.len()
+}
+
+pub fn check_github_release(
+    current_version: &str,
+    connected: bool,
+) -> Result<Option<(String, String)>, String> {
+    let mut builder = Client::builder()
+        .user_agent("EvertyMultiLink-App")
+        .timeout(Duration::from_secs(6));
+    if connected {
+        if let Ok(proxy) = reqwest::Proxy::all(format!("http://127.0.0.1:{PORT}")) {
+            builder = builder.proxy(proxy);
+        }
+    }
+    let client = builder.build().map_err(|e| e.to_string())?;
+    let resp = client
+        .get("https://api.github.com/repos/vaalimusic/EvertyMultiLink/releases/latest")
+        .header("Accept", "application/vnd.github.v3+json")
+        .send()
+        .map_err(|e| format!("GitHub API: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("GitHub HTTP {}", resp.status()));
+    }
+    let json: Value = resp.json().map_err(|e| e.to_string())?;
+    let tag = json.get("tag_name").and_then(|t| t.as_str()).unwrap_or("");
+    let html_url = json
+        .get("html_url")
+        .and_then(|u| u.as_str())
+        .unwrap_or("https://github.com/vaalimusic/EvertyMultiLink/releases");
+    if !tag.is_empty() && is_newer_version(tag, current_version) {
+        Ok(Some((tag.to_string(), html_url.to_string())))
+    } else {
+        Ok(None)
+    }
+}
+
+#[test]
+fn test_version_comparisons() {
+    assert!(is_newer_version("1.1.3", "1.1.2"));
+    assert!(is_newer_version("v1.1.3", "1.1.2"));
+    assert!(is_newer_version("1.2.0", "1.1.2"));
+    assert!(is_newer_version("2.0.0", "1.1.2"));
+    assert!(!is_newer_version("1.1.2", "1.1.2"));
+    assert!(!is_newer_version("v1.1.2", "1.1.2"));
+    assert!(!is_newer_version("1.1.1", "1.1.2"));
+    assert!(!is_newer_version("1.0.9", "1.1.2"));
+}
+

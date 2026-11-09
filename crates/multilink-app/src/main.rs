@@ -78,6 +78,7 @@ enum Update {
         Vec<(String, Option<u64>, multilink_core::NodeQuality)>,
     ),
     TunnelReachable(bool),
+    UpdateCheckResult(Result<Option<(String, String)>, String>),
 }
 #[derive(Clone)]
 struct UiUpdates {
@@ -147,6 +148,7 @@ fn worker(rx: mpsc::Receiver<Command>, tx: UiUpdates) {
     let mut next_tunnel_check = Instant::now();
     let mut next_access_check = Instant::now();
     let mut tunnel_state: Option<bool> = None;
+    let mut metrics_failures: u32 = 0;
     match multilink_platform::recover_system_proxy() {
         Ok(true) => {
             let _ = tx.send(Update::Notice(
@@ -234,6 +236,8 @@ fn worker(rx: mpsc::Receiver<Command>, tx: UiUpdates) {
                     Ok(e) => {
                         let system_proxy_active = e.proxy.is_some();
                         connection = Some(e);
+                        metrics_failures = 0;
+                        multilink_platform::prevent_sleep(true);
                         next_tunnel_check = Instant::now();
                         tunnel_state = None;
                         let _ = tx.send(Update::Connected(system_proxy_active));
@@ -256,6 +260,8 @@ fn worker(rx: mpsc::Receiver<Command>, tx: UiUpdates) {
                     Ok(()) => {
                         connection = None;
                         tunnel_state = None;
+                        metrics_failures = 0;
+                        multilink_platform::prevent_sleep(false);
                         let _ = tx.send(Update::Disconnected);
                     }
                     Err(e) => {
@@ -334,9 +340,11 @@ fn worker(rx: mpsc::Receiver<Command>, tx: UiUpdates) {
                         }
                     }
                     Err(multilink_mihomo::AccessError::Denied) => {
+                        multilink_platform::prevent_sleep(false);
                         if let Some(mut c) = connection.take() {
                             let _ = c.stop();
                         }
+                        metrics_failures = 0;
                         let _ = tx.send(Update::Disconnected);
                         let _ = tx.send(Update::AccessRejected);
                         continue;
@@ -356,25 +364,36 @@ fn worker(rx: mpsc::Receiver<Command>, tx: UiUpdates) {
             }
             match c.engine.metrics() {
                 Ok(metrics) => {
+                    metrics_failures = 0;
                     let _ = tx.send(Update::Metrics(
                         metrics,
                         c.engine.delays().unwrap_or_default(),
                     ));
                 }
                 Err(error) => {
-                    let automatic = c.proxy.is_some();
-                    let restore = c.stop();
-                    connection = None;
-                    let message = match restore {
-                        Ok(()) if automatic => format!("{error} · системный прокси восстановлен"),
-                        Ok(()) => error,
-                        Err(e) => format!("{error}. {e}; восстановление повторит watchdog"),
-                    };
-                    let _ = tx.send(Update::Error(message));
+                    let child_alive = c.engine.is_alive();
+                    if child_alive && metrics_failures < 5 {
+                        metrics_failures += 1;
+                        // Transient loopback/sleep wake-up glitch. Mihomo process is alive,
+                        // do not disconnect, keep VPN active and retry next second.
+                    } else {
+                        metrics_failures = 0;
+                        multilink_platform::prevent_sleep(false);
+                        let automatic = c.proxy.is_some();
+                        let restore = c.stop();
+                        connection = None;
+                        let message = match restore {
+                            Ok(()) if automatic => format!("{error} · системный прокси восстановлен"),
+                            Ok(()) => error,
+                            Err(e) => format!("{error}. {e}; восстановление повторит watchdog"),
+                        };
+                        let _ = tx.send(Update::Error(message));
+                    }
                 }
             }
         }
     }
+    multilink_platform::prevent_sleep(false);
     if let Some(mut connection) = connection {
         let _ = connection.stop();
     }
@@ -444,8 +463,15 @@ enum Action {
     EditSubscriptionUrl(u64),
     RenameSubscription(u64),
     DeleteSubscription(u64),
+    ToggleAutoconnect,
+    ToggleRulesOnly,
+    OpenSetPin,
+    RemovePin,
+    LockPin,
+    CheckUpdate,
+    OpenUpdateLink,
 }
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 enum Modal {
     Language,
     AccessCode,
@@ -459,6 +485,8 @@ enum Modal {
     SubscriptionName,
     SubscriptionDelete,
     ClearLibrary,
+    PinAuth,
+    SetPin,
     ShareQr {
         title: String,
         content: String,
@@ -551,6 +579,12 @@ struct App {
     tray_connect: Option<tray_icon::menu::MenuItem>,
     #[cfg(windows)]
     tray_rule: Option<tray_icon::menu::MenuItem>,
+    pin_unlocked: bool,
+    pin_target_page: Option<Page>,
+    initial_autoconnect_checked: bool,
+    update_available: Option<String>,
+    update_url: Option<String>,
+    checking_update: bool,
 }
 const SUBSCRIPTION_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 const SUBSCRIPTION_RETRY: Duration = Duration::from_secs(15 * 60);
@@ -723,7 +757,7 @@ impl App {
         let mut renderer = Rgba8Renderer::new();
         icons::register(&mut renderer);
         let first_run = settings.nodes.is_empty();
-        Self {
+        let app = Self {
             window: None,
             updates,
             next_subscription_refresh: Default::default(),
@@ -814,7 +848,22 @@ impl App {
             tray_connect: None,
             #[cfg(windows)]
             tray_rule: None,
-        }
+            pin_unlocked: false,
+            pin_target_page: None,
+            initial_autoconnect_checked: false,
+            update_available: None,
+            update_url: None,
+            checking_update: false,
+        };
+        let check_updates = app.updates.clone();
+        std::thread::spawn(move || {
+            let res = multilink_mihomo::check_github_release(env!("CARGO_PKG_VERSION"), false);
+            let _ = check_updates.send(Update::UpdateCheckResult(res));
+        });
+        app
+    }
+    fn pin_locked(&self) -> bool {
+        self.settings.pin_code.is_some() && !self.pin_unlocked
     }
     fn save(&mut self) {
         let _ = self.tx.send(Command::Save(self.settings.clone()));
@@ -1089,12 +1138,92 @@ impl App {
                     }
                     self.redraw();
                 }
+                Update::UpdateCheckResult(res) => {
+                    let manual = self.checking_update;
+                    self.checking_update = false;
+                    match res {
+                        Ok(Some((tag, url))) => {
+                            self.update_available = Some(tag.clone());
+                            self.update_url = Some(url);
+                            self.notify(format!("Доступно обновление: {tag}"));
+                        }
+                        Ok(None) => {
+                            self.update_available = None;
+                            if manual {
+                                self.notify("У вас установлена последняя версия");
+                            }
+                        }
+                        Err(e) => {
+                            if manual {
+                                self.notify(format!("Не удалось проверить обновления: {e}"));
+                            }
+                        }
+                    }
+                    self.redraw();
+                }
             }
             self.sync_tray();
         }
     }
     fn action(&mut self, action: Action) {
         self.redraw();
+        if self.pin_locked() {
+            match action {
+                Action::Nav(page)
+                    if matches!(
+                        page,
+                        Page::Settings | Page::Servers | Page::Subscriptions | Page::Routing
+                    ) =>
+                {
+                    self.pin_target_page = Some(page);
+                    self.modal = Some(Modal::PinAuth);
+                    self.edit.clear();
+                    self.edit_scroll = 0.0;
+                    self.field_focused = true;
+                    self.reset_caret();
+                    return;
+                }
+                Action::ClearServers
+                | Action::DeleteRule(_)
+                | Action::EditRule(_)
+                | Action::AddRule
+                | Action::AddRuDomains
+                | Action::AddProcessRule
+                | Action::AddAntigravity
+                | Action::ImportRoutes
+                | Action::ReplaceRoutes
+                | Action::ExportSettings
+                | Action::ImportSettings
+                | Action::ToggleSystemProxy
+                | Action::ToggleTun
+                | Action::ToggleAutostart
+                | Action::ToggleAutoconnect
+                | Action::ToggleRulesOnly
+                | Action::Policy
+                | Action::OpenSetPin
+                | Action::RemovePin
+                | Action::OpenLanSync
+                | Action::ShareNode(_)
+                | Action::ShareSubscription(_)
+                | Action::DeleteSubscription(_)
+                | Action::RenameSubscription(_)
+                | Action::EditSubscriptionUrl(_)
+                | Action::RefreshSubscription(_)
+                | Action::EnableAllServers
+                | Action::DisableAllServers
+                | Action::RankServers
+                | Action::Import => {
+                    self.modal = Some(Modal::PinAuth);
+                    self.edit.clear();
+                    self.edit_scroll = 0.0;
+                    self.field_focused = true;
+                    self.reset_caret();
+                    self.notify("Действие защищено PIN-кодом");
+                    return;
+                }
+                _ => {}
+            }
+        }
         match action {
             Action::HelpSection(section) => {
                 self.offset = section.min(help::COUNT - 1);
@@ -1730,6 +1859,41 @@ impl App {
                             );
                         }
                     }
+                    Some(Modal::PinAuth) => {
+                        let entered = self.edit.text().trim();
+                        if let Some(expected) = &self.settings.pin_code {
+                            if entered == expected {
+                                self.pin_unlocked = true;
+                                self.modal = None;
+                                self.edit.clear();
+                                self.notify("PIN-код подтверждён · настройки разблокированы");
+                                if let Some(target) = self.pin_target_page.take() {
+                                    self.page = target;
+                                    self.offset = 0;
+                                }
+                            } else {
+                                self.edit.clear();
+                                self.notify("Неверный PIN-код");
+                            }
+                        } else {
+                            self.pin_unlocked = true;
+                            self.modal = None;
+                            self.edit.clear();
+                        }
+                    }
+                    Some(Modal::SetPin) => {
+                        let entered = self.edit.text().trim().to_string();
+                        if entered.len() < 4 {
+                            self.notify("PIN-код должен содержать не менее 4 символов");
+                        } else {
+                            self.settings.pin_code = Some(entered);
+                            self.pin_unlocked = true;
+                            self.modal = None;
+                            self.edit.clear();
+                            self.save();
+                            self.notify("PIN-код успешно установлен");
+                        }
+                    }
                     Some(Modal::ClearLibrary) => {
                         self.settings.nodes.clear();
                         self.settings.subscriptions.clear();
@@ -1889,6 +2053,76 @@ impl App {
             Action::ClearServers if !self.connected && !self.busy => {
                 self.modal = Some(Modal::ClearLibrary);
                 self.edit.set_text("Очистить библиотеку");
+            }
+            Action::ToggleAutoconnect => {
+                self.settings.autoconnect = !self.settings.autoconnect;
+                self.save();
+                self.notify(if self.settings.autoconnect {
+                    "Автоподключение при старте включено"
+                } else {
+                    "Автоподключение при старте выключено"
+                });
+            }
+            Action::ToggleRulesOnly => {
+                self.settings.rules_only = !self.settings.rules_only;
+                self.save();
+                if self.connected {
+                    let _ = self.tx.send(Command::ApplySettings(self.settings.clone()));
+                    self.notify(if self.settings.rules_only {
+                        "Режим «Только правила»: прямой доступ для остального трафика"
+                    } else {
+                        "Стандартный режим: весь трафик через VPN"
+                    });
+                } else {
+                    self.notify(if self.settings.rules_only {
+                        "Включён режим «Только правила»"
+                    } else {
+                        "Выключен режим «Только правила»"
+                    });
+                }
+            }
+            Action::OpenSetPin if !self.busy => {
+                self.modal = Some(Modal::SetPin);
+                self.edit.clear();
+                self.edit_scroll = 0.0;
+                self.field_focused = true;
+                self.reset_caret();
+            }
+            Action::RemovePin if !self.busy => {
+                self.settings.pin_code = None;
+                self.pin_unlocked = false;
+                self.save();
+                self.notify("Защита PIN-кодом отключена");
+            }
+            Action::LockPin => {
+                self.pin_unlocked = false;
+                self.page = Page::Dashboard;
+                self.notify("Настройки заблокированы PIN-кодом");
+            }
+            Action::CheckUpdate if !self.busy => {
+                if self.checking_update {
+                    return;
+                }
+                self.checking_update = true;
+                self.notify("Проверка обновлений на GitHub…");
+                let update_tx = self.updates.clone();
+                let connected = self.connected;
+                std::thread::spawn(move || {
+                    let res = multilink_mihomo::check_github_release(
+                        env!("CARGO_PKG_VERSION"),
+                        connected,
+                    );
+                    let _ = update_tx.send(Update::UpdateCheckResult(res));
+                });
+            }
+            Action::OpenUpdateLink => {
+                let url = self
+                    .update_url
+                    .as_deref()
+                    .unwrap_or("https://github.com/vaalimusic/EvertyMultiLink/releases/latest");
+                if multilink_platform::open_project_site(url).is_err() {
+                    self.notify(format!("Не удалось открыть браузер: {url}"));
+                }
             }
             _ => self.notify("Отключитесь перед изменением конфигурации"),
         }
@@ -2126,6 +2360,10 @@ impl App {
         let mut options = vec![
             ("DIRECT".into(), "Напрямую".into()),
             ("MULTILINK".into(), "Через VPN".into()),
+            ("MODE-LATENCY".into(), "Минимальный пинг (Игры)".into()),
+            ("MODE-SMART".into(), "Умный режим (Авто)".into()),
+            ("MODE-STABLE".into(), "Стабильный (Резерв)".into()),
+            ("MODE-BALANCE".into(), "Балансировка нагрузки".into()),
         ];
         options.extend(
             multilink_core::available_countries(&self.settings.nodes)
@@ -2429,6 +2667,11 @@ impl ApplicationHandler for App {
                 self.notify("Не удалось восстановить режим TUN после перезапуска");
             }
             self.redraw();
+        } else if !self.initial_autoconnect_checked {
+            self.initial_autoconnect_checked = true;
+            if self.settings.autoconnect && !self.connected && !self.settings.nodes.is_empty() {
+                self.action(Action::Connect);
+            }
         }
     }
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
@@ -3743,5 +3986,77 @@ mod routing_workflow_tests {
         app.page = Page::Settings;
         app.paint(1040.0, 740.0);
         assert!(app.disabled_hits.iter().any(|(_, hint)| hint.contains("Отключите VPN")));
+    }
+    #[test]
+    fn pin_lock_protection_and_unlock_flow() {
+        let mut app = App::new(None);
+        let (commands, _received) = mpsc::channel();
+        app.tx = commands;
+        app.settings = Settings::default();
+        app.compact = false;
+
+        // Set PIN
+        app.action(Action::OpenSetPin);
+        assert_eq!(app.modal, Some(Modal::SetPin));
+        app.edit.set_text("1234");
+        app.action(Action::Submit);
+        assert_eq!(app.settings.pin_code.as_deref(), Some("1234"));
+        assert!(app.pin_unlocked);
+
+        // Lock PIN
+        app.action(Action::LockPin);
+        assert!(!app.pin_unlocked);
+        assert_eq!(app.page, Page::Dashboard);
+
+        // Navigation to Settings is blocked by PIN
+        app.action(Action::Nav(Page::Settings));
+        assert_eq!(app.modal, Some(Modal::PinAuth));
+        assert_ne!(app.page, Page::Settings);
+
+        // Incorrect PIN
+        app.edit.set_text("9999");
+        app.action(Action::Submit);
+        assert_eq!(app.modal, Some(Modal::PinAuth));
+        assert!(app.notice.contains("Неверный PIN-код"));
+
+        // Correct PIN unlocks and proceeds to target page
+        app.edit.set_text("1234");
+        app.action(Action::Submit);
+        assert!(app.pin_unlocked);
+        assert_eq!(app.modal, None);
+        assert_eq!(app.page, Page::Settings);
+
+        // Remove PIN
+        app.action(Action::RemovePin);
+        assert_eq!(app.settings.pin_code, None);
+        assert!(!app.pin_locked());
+    }
+    #[test]
+    fn autoconnect_and_rules_only_mode_toggles() {
+        let mut app = App::new(None);
+        let (commands, _received) = mpsc::channel();
+        app.tx = commands;
+        app.settings = Settings::default();
+
+        assert!(!app.settings.autoconnect);
+        app.action(Action::ToggleAutoconnect);
+        assert!(app.settings.autoconnect);
+        app.action(Action::ToggleAutoconnect);
+        assert!(!app.settings.autoconnect);
+
+        assert!(!app.settings.rules_only);
+        app.action(Action::ToggleRulesOnly);
+        assert!(app.settings.rules_only);
+        app.action(Action::ToggleRulesOnly);
+        assert!(!app.settings.rules_only);
+    }
+    #[test]
+    fn gaming_mode_rule_targets_available() {
+        let app = App::new(None);
+        let targets = app.rule_targets();
+        assert!(targets.iter().any(|(id, _)| id == "MODE-LATENCY"));
+        assert!(targets.iter().any(|(id, _)| id == "MODE-SMART"));
+        assert!(targets.iter().any(|(id, _)| id == "MODE-STABLE"));
+        assert!(targets.iter().any(|(id, _)| id == "MODE-BALANCE"));
     }
 }

@@ -408,6 +408,23 @@ pub fn load() -> io::Result<Option<Vec<u8>>> {
     crypt(&std::fs::read(path)?, false).map(Some)
 }
 
+#[cfg(windows)]
+pub fn prevent_sleep(prevent: bool) {
+    use windows_sys::Win32::System::Power::{SetThreadExecutionState, ES_CONTINUOUS, ES_SYSTEM_REQUIRED};
+    unsafe {
+        if prevent {
+            // Keep system and background network alive while VPN is active.
+            // Display is still allowed to sleep/turn off to save power.
+            SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED);
+        } else {
+            SetThreadExecutionState(ES_CONTINUOUS);
+        }
+    }
+}
+
+#[cfg(not(windows))]
+pub fn prevent_sleep(_prevent: bool) {}
+
 #[cfg(all(test, windows))]
 mod tests {
     #[test]

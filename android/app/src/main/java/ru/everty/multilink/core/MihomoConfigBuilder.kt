@@ -98,17 +98,20 @@ object MihomoConfigBuilder {
                     sb.appendLine("    strategy: round-robin")
                     sb.appendLine("    url: 'http://cp.cloudflare.com/generate_204'")
                     sb.appendLine("    interval: 300")
+                    sb.appendLine("    lazy: true")
                 }
                 Policy.STABLE -> {
                     sb.appendLine("    type: fallback")
                     sb.appendLine("    url: 'http://cp.cloudflare.com/generate_204'")
                     sb.appendLine("    interval: 300")
+                    sb.appendLine("    lazy: true")
                 }
                 Policy.SMART, Policy.LATENCY -> {
                     sb.appendLine("    type: url-test")
                     sb.appendLine("    url: 'http://cp.cloudflare.com/generate_204'")
                     sb.appendLine("    interval: 300")
                     sb.appendLine("    tolerance: 50")
+                    sb.appendLine("    lazy: true")
                 }
             }
             sb.appendLine("    proxies:")

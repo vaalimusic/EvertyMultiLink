@@ -356,6 +356,65 @@
                 app:tint="#F1C25C" />
         </LinearLayout>
 
+        <!-- App Updates Card -->
+        <LinearLayout
+            android:id="@+id/cardAppUpdate"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/card_tv_focusable"
+            android:padding="16dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:layout_marginBottom="12dp">
+
+            <ImageView
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@android:drawable/stat_sys_download_done"
+                android:contentDescription="Update App"
+                android:layout_marginEnd="14dp"
+                app:tint="@color/accent_cyan" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tvAppUpdateTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/update_title"
+                    android:textColor="@color/text_primary"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvAppUpdateDesc"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/update_checking"
+                    android:textColor="@color/accent_mint"
+                    android:textSize="12sp"
+                    android:layout_marginTop="2dp" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/btnAppUpdateAction"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/btn_check_update"
+                android:textColor="@color/text_primary"
+                android:background="@drawable/card_background"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="6dp"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
         <!-- 7. Everty OpenSource Ecosystem Link Card -->
         <LinearLayout
             android:id="@+id/cardOpenSourceLink"

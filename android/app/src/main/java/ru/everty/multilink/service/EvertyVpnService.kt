@@ -39,6 +39,8 @@ class EvertyVpnService : VpnService() {
     private var workerThread: Thread? = null
     private var mihomoProcess: Process? = null
     private val isDisconnecting = AtomicBoolean(false)
+    private var connectivityManager: android.net.ConnectivityManager? = null
+    private var networkCallback: android.net.ConnectivityManager.NetworkCallback? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -63,6 +65,18 @@ class EvertyVpnService : VpnService() {
             stopSelf()
             return
         }
+
+        // Clean up any stale process or tun2socks session before connecting
+        runCatching {
+            mihomoProcess?.let {
+                it.destroy()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    it.destroyForcibly()
+                }
+            }
+        }
+        mihomoProcess = null
+        runCatching { Tun2Socks.stop() }
 
         broadcastState(STATE_CONNECTING)
         startForeground(1001, buildNotification("Подключение к ${selectedNode.name}…", false))
@@ -111,8 +125,16 @@ class EvertyVpnService : VpnService() {
                     .addAddress("172.19.0.1", 30)
                     .addDnsServer("1.1.1.1")
                     .addDnsServer("8.8.8.8")
-                    .setMtu(1500)
+                    .setMtu(1400)
                     .addRoute("0.0.0.0", 0)
+
+                // Intercept IPv6 to prevent cellular ISP leak
+                try {
+                    builder.addAddress("2001:db8:1234::1", 64)
+                    builder.addRoute("::", 0)
+                } catch (e: Exception) {
+                    Log.w(TAG, "IPv6 route setup skipped: ${e.message}")
+                }
 
                 // Per-App Split Tunneling or default self-exclusion
                 if (settings.isPerAppVpnEnabled && settings.perAppVpnPackages.isNotEmpty()) {
@@ -149,30 +171,53 @@ class EvertyVpnService : VpnService() {
 
                 if (vpnInterface != null) {
                     val pfd = vpnInterface!!
-                    // Give tun2socks its own descriptor. Passing pfd.fd directly
-                    // makes Android and the native engine own the same fd, which
-                    // causes fdsan to abort the process during VPN shutdown.
                     val fd = ParcelFileDescriptor.dup(pfd.fileDescriptor).detachFd()
-                    // The duplicated descriptor keeps the TUN alive. Close the
-                    // framework-owned descriptor now so only tun2socks owns a
-                    // descriptor for this interface.
                     pfd.close()
                     vpnInterface = null
                     isRunning.set(true)
 
                     Log.d(TAG, "VPN TUN established successfully (fd=$fd), starting Tun2Socks...")
 
-                    // 5. Start Tun2Socks in-process via JNI
-                    Tun2Socks.start(fd, "socks5://127.0.0.1:7890", 1500)
+                    // 5. Start Tun2Socks in-process via JNI (MTU 1400 avoids mobile carrier packet fragmentation)
+                    Tun2Socks.start(fd, "socks5://127.0.0.1:7890", 1400)
+
+                    // 6. Monitor network changes (Wi-Fi <-> Mobile Data) for smooth handover
+                    try {
+                        connectivityManager = getSystemService(android.net.ConnectivityManager::class.java)
+                        val cb = object : android.net.ConnectivityManager.NetworkCallback() {
+                            override fun onAvailable(network: android.net.Network) {
+                                setUnderlyingNetworks(null)
+                            }
+                            override fun onLost(network: android.net.Network) {
+                                setUnderlyingNetworks(null)
+                            }
+                            override fun onCapabilitiesChanged(network: android.net.Network, networkCapabilities: android.net.NetworkCapabilities) {
+                                setUnderlyingNetworks(null)
+                            }
+                        }
+                        networkCallback = cb
+                        connectivityManager?.registerDefaultNetworkCallback(cb)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Network callback registration skipped: ${e.message}")
+                    }
 
                     broadcastState(STATE_CONNECTED)
                     startForeground(1001, buildNotification("Защищено через ${selectedNode.name}", true))
                     Log.d(TAG, "VPN Connected and Tun2Socks running.")
 
-                    // Keep running until disconnected or service stopped
+                    // Keep running while monitoring Mihomo process health
                     while (isRunning.get()) {
                         try {
                             Thread.sleep(1000)
+                            val p = mihomoProcess
+                            if (p != null && !p.isAlive) {
+                                Log.e(TAG, "Mihomo process terminated unexpectedly (exit=${runCatching { p.exitValue() }.getOrNull()})")
+                                if (isRunning.get()) {
+                                    disconnect()
+                                    stopSelf()
+                                }
+                                break
+                            }
                         } catch (_: InterruptedException) {
                             break
                         }
@@ -202,8 +247,21 @@ class EvertyVpnService : VpnService() {
         workerThread?.interrupt()
         workerThread = null
 
+        networkCallback?.let {
+            runCatching { connectivityManager?.unregisterNetworkCallback(it) }
+        }
+        networkCallback = null
+        connectivityManager = null
+
         runCatching { Tun2Socks.stop() }.onFailure { Log.e(TAG, "Error stopping Tun2Socks: ${it.message}") }
-        runCatching { mihomoProcess?.destroy() }
+        runCatching {
+            mihomoProcess?.let {
+                it.destroy()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    it.destroyForcibly()
+                }
+            }
+        }
         mihomoProcess = null
 
         runCatching { vpnInterface?.close() }

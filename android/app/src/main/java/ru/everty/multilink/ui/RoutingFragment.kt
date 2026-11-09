@@ -76,6 +76,62 @@ class RoutingFragment : Fragment() {
         binding.cardGithubLink.setOnClickListener {
             openUrl("https://github.com/vaalimusic/EvertyMultiLink")
         }
+
+        setupAppUpdates()
+    }
+
+    private fun setupAppUpdates() {
+        val currentVersion = ru.everty.multilink.update.UpdateChecker.getAppVersion(requireContext())
+        binding.tvAppUpdateDesc.text = getString(R.string.update_desc, currentVersion)
+
+        var latestRelease: ru.everty.multilink.update.UpdateChecker.ReleaseInfo? = null
+
+        fun doCheck(showFeedback: Boolean) {
+            binding.tvAppUpdateDesc.text = getString(R.string.update_checking)
+            binding.btnAppUpdateAction.text = "…"
+            Thread {
+                val res = ru.everty.multilink.update.UpdateChecker.checkLatestReleaseSync(currentVersion)
+                activity?.runOnUiThread {
+                    if (_binding == null || !isAdded) return@runOnUiThread
+                    val release = res.getOrNull()
+                    latestRelease = release
+                    if (release != null) {
+                        binding.tvAppUpdateDesc.text = getString(R.string.update_available, release.tagName)
+                        binding.btnAppUpdateAction.text = getString(R.string.btn_update)
+                        binding.btnAppUpdateAction.setTextColor(androidx.core.content.ContextCompat.getColor(requireContext(), R.color.accent_mint))
+                        if (showFeedback) {
+                            val targetUrl = release.apkUrl ?: release.htmlUrl
+                            openUrl(targetUrl)
+                        }
+                    } else {
+                        binding.tvAppUpdateDesc.text = getString(R.string.update_latest)
+                        binding.btnAppUpdateAction.text = getString(R.string.btn_check_update)
+                        if (showFeedback) {
+                            android.widget.Toast.makeText(requireContext(), R.string.update_latest, android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }.start()
+        }
+
+        binding.cardAppUpdate.setOnClickListener {
+            if (latestRelease != null) {
+                val targetUrl = latestRelease!!.apkUrl ?: latestRelease!!.htmlUrl
+                openUrl(targetUrl)
+            } else {
+                doCheck(true)
+            }
+        }
+        binding.btnAppUpdateAction.setOnClickListener {
+            if (latestRelease != null) {
+                val targetUrl = latestRelease!!.apkUrl ?: latestRelease!!.htmlUrl
+                openUrl(targetUrl)
+            } else {
+                doCheck(true)
+            }
+        }
+
+        doCheck(false)
     }
 
     private fun openUrl(url: String) {

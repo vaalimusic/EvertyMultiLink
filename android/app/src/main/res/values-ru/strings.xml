@@ -47,4 +47,13 @@
     <string name="opensource_desc">desk.everty.ru/opensource • Экосистема открытых проектов</string>
     <string name="github_title">GitHub • Следите за обновлениями</string>
     <string name="github_desc">github.com/vaalimusic/EvertyMultiLink</string>
+
+    <!-- Updates -->
+    <string name="update_title">Обновление приложения</string>
+    <string name="update_desc">Версия %s • Проверить обновления</string>
+    <string name="update_available">Доступна новая версия: %s!</string>
+    <string name="update_checking">Проверка обновлений на GitHub…</string>
+    <string name="update_latest">У вас установлена актуальная версия.</string>
+    <string name="btn_update">Обновить</string>
+    <string name="btn_check_update">Проверить</string>
 </resources>

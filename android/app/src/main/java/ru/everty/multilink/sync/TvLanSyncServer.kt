@@ -84,6 +84,7 @@ class TvLanSyncServer(
         } catch (_: Exception) {}
         broadcastSocket = null
         broadcastThread?.interrupt()
+        runCatching { executor.shutdownNow() }
     }
 
     fun getSyncUrl(): String {

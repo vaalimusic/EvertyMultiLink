@@ -184,6 +184,12 @@ pub struct Settings {
     pub ru_defaults_initialized: bool,
     #[serde(default = "default_smart_tolerance")]
     pub smart_tolerance: u32,
+    #[serde(default)]
+    pub autoconnect: bool,
+    #[serde(default)]
+    pub rules_only: bool,
+    #[serde(default)]
+    pub pin_code: Option<String>,
 }
 fn default_smart_tolerance() -> u32 {
     100
@@ -199,7 +205,15 @@ pub fn unavailable_route_targets(settings: &Settings) -> Vec<String> {
     let mut missing = Vec::new();
     for rule in &settings.rules {
         if let Some(target) = rule.split(',').nth(2) {
-            let available = matches!(target, "DIRECT" | "MULTILINK")
+            let available = matches!(
+                target,
+                "DIRECT"
+                    | "MULTILINK"
+                    | "MODE-SMART"
+                    | "MODE-LATENCY"
+                    | "MODE-STABLE"
+                    | "MODE-BALANCE"
+            )
                 || settings
                     .nodes
                     .iter()
@@ -261,6 +275,9 @@ impl Default for Settings {
             subscriptions: Vec::new(),
             ru_defaults_initialized: false,
             smart_tolerance: default_smart_tolerance(),
+            autoconnect: false,
+            rules_only: false,
+            pin_code: None,
         }
     }
 }

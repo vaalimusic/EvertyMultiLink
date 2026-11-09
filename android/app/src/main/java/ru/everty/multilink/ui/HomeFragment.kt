@@ -52,6 +52,38 @@ class HomeFragment : Fragment() {
         setupListeners()
         updateModeDisplay()
         updateVpnState(EvertyVpnService.currentState)
+        checkUpdate()
+    }
+
+    private fun checkUpdate() {
+        val currentVersion = ru.everty.multilink.update.UpdateChecker.getAppVersion(requireContext())
+        Thread {
+            val res = ru.everty.multilink.update.UpdateChecker.checkLatestReleaseSync(currentVersion)
+            val release = res.getOrNull()
+            if (release != null) {
+                activity?.runOnUiThread {
+                    if (_binding == null || !isAdded) return@runOnUiThread
+                    binding.bannerUpdate.visibility = View.VISIBLE
+                    binding.tvUpdateBannerText.text = getString(R.string.update_available, release.tagName)
+                    val targetUrl = release.apkUrl ?: release.htmlUrl
+                    binding.bannerUpdate.setOnClickListener {
+                        openUrl(targetUrl)
+                    }
+                    binding.btnUpdateBannerAction.setOnClickListener {
+                        openUrl(targetUrl)
+                    }
+                }
+            }
+        }.start()
+    }
+
+    private fun openUrl(url: String) {
+        try {
+            val browserIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+            startActivity(browserIntent)
+        } catch (_: Exception) {
+            android.widget.Toast.makeText(requireContext(), "Не удалось открыть ссылку", android.widget.Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun setupListeners() {
@@ -167,6 +199,15 @@ class HomeFragment : Fragment() {
         super.onResume()
         updateModeDisplay()
         updateVpnState(EvertyVpnService.currentState)
+        if (EvertyVpnService.currentState == EvertyVpnService.STATE_CONNECTED) {
+            timerHandler.removeCallbacks(timerRunnable)
+            timerHandler.post(timerRunnable)
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        timerHandler.removeCallbacks(timerRunnable)
     }
 
     override fun onDestroyView() {

@@ -65,6 +65,44 @@
                 android:paddingVertical="5dp" />
         </LinearLayout>
 
+        <!-- Update Alert Banner (shows when GitHub release is available) -->
+        <LinearLayout
+            android:id="@+id/bannerUpdate"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/card_tv_focusable"
+            android:padding="12dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:layout_marginBottom="12dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tvUpdateBannerText"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/update_available"
+                android:textColor="@color/accent_mint"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/btnUpdateBannerAction"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/btn_update"
+                android:textColor="@color/bg_dark"
+                android:background="@drawable/card_background"
+                android:backgroundTint="@color/accent_mint"
+                android:paddingHorizontal="14dp"
+                android:paddingVertical="6dp"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
         <!-- Center: Big Circular Connect Button -->
         <FrameLayout
             android:id="@+id/frameConnectCircle"

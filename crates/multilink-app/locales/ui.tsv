@@ -364,3 +364,34 @@ TUN выбран · для подключения нужны права адми
 Отключите VPN для добавления новых серверов	Disconnect VPN to add new servers	VPN trennen, um neue Server hinzuzufügen	Desconecta la VPN para añadir servidores	请先断开 VPN 以添加新服务器
 Отключите VPN для добавления новой подписки	Disconnect VPN to add a subscription	VPN trennen, um neues Abonnement hinzuzufügen	Desconecta la VPN para añadir una suscripción	请先断开 VPN 以添加新订阅
 🇷🇺 Локальный RU-узел (прямой доступ / вне пула умного режима)	🇷🇺 Local RU node (direct access / excluded from smart pool)	🇷🇺 Lokaler RU-Knoten (Direktzugriff / außerhalb des Smart-Pools)	🇷🇺 Nodo RU local (acceso directo / fuera del grupo inteligente)	🇷🇺 本地俄罗斯节点（直连 / 排除在智能模式外）
+Режим «Только правила»	Rules-only mode	Nur-Regeln-Modus	Modo solo reglas	仅规则模式
+Весь обычный трафик напрямую, VPN только для заданных в правилах сайтов/игр.	All default traffic goes direct, VPN only for sites/games in rules.	Standardverkehr geht direkt, VPN nur für festgelegte Regeln/Spiele.	Todo el tráfico va directo, VPN solo para sitios/juegos en reglas.	所有默认流量直连，仅规则中的网站/游戏走 VPN。
+Запуск программы	Application startup	Programmstart	Inicio del programa	程序启动
+Автоподключение при старте	Auto-connect at launch	Autoverbindung beim Start	Autoconexión al iniciar	启动时自动连接
+Автоматически включать VPN-соединение при запуске приложения.	Automatically connect to VPN when launching the application.	Verbindet sich beim Programmstart automatisch mit dem VPN.	Conectar automáticamente a la VPN al iniciar la aplicación.	程序启动时自动建立 VPN 连接。
+Защита настроек PIN-кодом	PIN code protection	PIN-Code-Schutz	Protección por código PIN	PIN 码保护
+PIN-код не установлен · изменение настроек и маршрутов доступно всем.	PIN code not set · settings and routes can be edited by anyone.	Kein PIN gesetzt · Einstellungen und Routen sind für alle änderbar.	PIN no configurado · cualquiera puede cambiar ajustes y rutas.	未设置 PIN 码 · 任何人均可修改设置和路由。
+Защита активна (разблокировано) · изменения временно разрешены.	Protection active (unlocked) · modifications temporarily allowed.	Schutz aktiv (entsperrt) · Änderungen vorübergehend erlaubt.	Protección activa (desbloqueado) · cambios permitidos temporalmente.	保护已启用（已解锁）· 暂时允许修改。
+Защита активна (заблокировано) · для любых изменений требуется PIN.	Protection active (locked) · PIN is required for any changes.	Schutz aktiv (gesperrt) · PIN für alle Änderungen erforderlich.	Protección activa (bloqueado) · se requiere PIN para cambios.	保护已启用（已锁定）· 任何修改均需 PIN 码。
+Задать PIN	Set PIN	PIN festlegen	Establecer PIN	设置 PIN
+Снять	Remove	Entfernen	Quitar	清除
+Заблокир.	Lock	Sperren	Bloquear	锁定
+Ввод PIN-кода	Enter PIN code	PIN-Code eingeben	Introducir PIN	输入 PIN 码
+Введите PIN-код для доступа к защищённым разделам.	Enter PIN code to access protected sections.	Geben Sie den PIN ein, um auf geschützte Bereiche zuzugreifen.	Introduce el PIN para acceder a las secciones protegidas.	输入 PIN 码以访问受保护的区域。
+Установка PIN-кода	Set PIN code	PIN-Code festlegen	Establecer PIN	设置 PIN 码
+Смена PIN-кода	Change PIN code	PIN-Code ändern	Cambiar PIN	更改 PIN 码
+Задайте PIN-код (от 4 символов) для блокировки изменений.	Set a PIN code (4+ characters) to protect settings.	Legen Sie einen PIN (ab 4 Zeichen) zum Schutz fest.	Define un PIN (mínimo 4 caracteres) para proteger ajustes.	设置 PIN 码（至少 4 位）以保护设置。
+PIN-код	PIN code	PIN-Code	Código PIN	PIN 码
+Новый PIN-код	New PIN code	Neuer PIN	Nuevo PIN	新 PIN 码
+Минимальный пинг (Игры)	Lowest latency (Gaming)	Niedrigster Ping (Spiele)	Mínima latencia (Juegos)	最低延迟（游戏）
+Умный режим (Авто)	Smart mode (Auto)	Smart-Modus (Auto)	Modo inteligente (Auto)	智能模式（自动）
+Стабильный (Резерв)	Stable (Fallback)	Stabil (Ausfallsicher)	Estable (Respaldo)	稳定模式（故障转移）
+Балансировка нагрузки	Load balancing	Lastverteilung	Balanceo de carga	负载均衡
+У вас установлена последняя официальная версия.	You are running the latest official release.	Sie verwenden die neueste offizielle Version.	Tienes instalada la última versión oficial.	您使用的是最新官方版本。
+Скачать релиз	Download release	Release herunterladen	Descargar versión	下载更新
+PIN-код подтверждён · настройки разблокированы	PIN confirmed · settings unlocked	PIN bestätigt · Einstellungen entsperrt	PIN confirmado · ajustes desbloqueados	PIN 码已验证 · 设置已解锁
+Неверный PIN-код	Incorrect PIN code	Falscher PIN-Code	PIN incorrecto	PIN 码错误
+PIN-код успешно установлен	PIN code successfully set	PIN-Code erfolgreich festgelegt	PIN establecido con éxito	PIN 码设置成功
+Защита PIN-кодом отключена	PIN code protection disabled	PIN-Code-Schutz deaktiviert	Protección por PIN desactivada	PIN 码保护已禁用
+Настройки заблокированы PIN-кодом	Settings locked with PIN code	Einstellungen mit PIN-Code gesperrt	Ajustes bloqueados con código PIN	设置已被 PIN 码锁定
+Действие защищено PIN-кодом	Action protected by PIN code	Aktion durch PIN-Code geschützt	Acción protegida por PIN	该操作受 PIN 码保护
