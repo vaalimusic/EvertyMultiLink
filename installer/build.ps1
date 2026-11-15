@@ -93,9 +93,10 @@ try {
     [Environment]::SetEnvironmentVariable($rustFlags, '-C target-feature=+crt-static', 'Process')
     $metadata = cargo metadata --no-deps --locked --format-version 1 | ConvertFrom-Json
     if ($LASTEXITCODE -ne 0) { throw 'Cargo metadata failed.' }
-    $version = ($metadata.packages | Where-Object name -eq 'multilink-app').version
+    $clientPackage = $metadata.packages | Where-Object name -eq 'multilink-app'
+    $version = $clientPackage.version
     if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Expected a numeric release version in multilink-app/Cargo.toml.' }
-    cargo build --release --locked --target $target --target-dir $cargoOutput -p multilink-app
+    $messages = cargo build --release --locked --target $target --target-dir $cargoOutput -p multilink-app --message-format=json-render-diagnostics
     if ($LASTEXITCODE -ne 0) { throw 'Client release build failed.' }
 } finally {
     [Environment]::SetEnvironmentVariable($rustFlags, $previousRustFlags, 'Process')
@@ -104,10 +105,13 @@ try {
 
 $releaseDir = Join-Path $cargoOutput "$target/release"
 Copy-Item -LiteralPath (Join-Path $releaseDir 'multilink-app.exe') -Destination $stage -Force
-$icon = Get-ChildItem -Path (Join-Path $releaseDir 'build/multilink-app-*/out/app.ico') -File |
-    Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1
-if (-not $icon) { throw 'The client build did not produce the installer icon.' }
-Copy-Item -LiteralPath $icon.FullName -Destination $stage -Force
+$clientBuildScript = $messages | ForEach-Object { ConvertFrom-Json -InputObject $_ } |
+    Where-Object { $_.reason -eq 'build-script-executed' -and $_.package_id -eq $clientPackage.id } |
+    Select-Object -Last 1
+if (-not $clientBuildScript) { throw 'Cargo did not report the client build script output.' }
+$icon = Join-Path $clientBuildScript.out_dir 'app.ico'
+if (-not (Test-Path -LiteralPath $icon -PathType Leaf)) { throw 'The client build did not produce the installer icon.' }
+Copy-Item -LiteralPath $icon -Destination $stage -Force
 
 $name = "EvertyMultiLink-$version-windows-x64-setup"
 $compilerArgs = @("/O$output", "/F$name", "/DAppVersion=$version", "/DStageDir=$stage")
