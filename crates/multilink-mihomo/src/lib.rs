@@ -3,6 +3,8 @@ mod antigravity;
 pub use antigravity::*;
 mod access;
 pub use access::*;
+mod lan_discovery;
+pub use lan_discovery::expand_lan_link;
 pub mod zero_shadow;
 pub use zero_shadow::*;
 #[cfg(test)]
@@ -73,6 +75,10 @@ fn runtime_proxy_names(
             (name.clone(), runtime)
         })
         .collect()
+}
+
+pub fn lan_gateway_ip() -> Option<std::net::Ipv4Addr> {
+    multilink_platform::lan_ipv4()
 }
 
 pub fn config(settings: &Settings, secret: &str) -> Result<String, String> {
@@ -254,6 +260,42 @@ pub fn config(settings: &Settings, secret: &str) -> Result<String, String> {
         "proxies":proxies, "proxy-groups":groups, "rules":rules,
         "profile":{"store-selected":false, "store-fake-ip":false},
     });
+    if let Some(key) = &settings.lan_gateway {
+        if nodes.iter().any(|node| multilink_core::is_lan_node(node)) {
+            return Err("Отключите LAN-серверы перед включением LAN-хоста".into());
+        }
+        if key.len() != 32 || !key.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err("Некорректный ключ LAN-хоста".into());
+        }
+        let ip = lan_gateway_ip().ok_or("Для LAN-хоста нужен частный IPv4-адрес")?;
+        config["listeners"] = json!([{
+            "name":"everty-lan", "type":"shadowsocks", "port":multilink_core::LAN_PORT,
+            "listen":ip, "cipher":multilink_core::LAN_CIPHER, "password":key, "udp":true
+        }]);
+        let outbound = config["rules"]
+            .as_array_mut()
+            .ok_or("Нет правил LAN-хоста")?;
+        for (index, cidr) in [
+            "127.0.0.0/8",
+            "10.0.0.0/8",
+            "172.16.0.0/12",
+            "192.168.0.0/16",
+            "169.254.0.0/16",
+            "::1/128",
+            "fc00::/7",
+            "fe80::/10",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            outbound.insert(
+                index,
+                json!(format!(
+                    "AND,((IN-NAME,everty-lan),(IP-CIDR,{cidr})),REJECT"
+                )),
+            );
+        }
+    }
     if settings.tun || rules.iter().any(|rule| rule.starts_with("PROCESS-")) {
         config["find-process-mode"] = json!("strict");
     }
@@ -352,6 +394,7 @@ pub struct Engine {
     last: Option<(Instant, u64, u64)>,
     _job: Option<multilink_platform::ChildJob>,
     settings: Settings,
+    _lan_discovery: Option<lan_discovery::DiscoveryHost>,
 }
 #[derive(Default)]
 pub struct RoutingChange {
@@ -488,6 +531,7 @@ impl Engine {
             last: None,
             _job: job,
             settings: settings.clone(),
+            _lan_discovery: None,
         };
         let until = Instant::now() + Duration::from_secs(12);
         while Instant::now() < until {
@@ -497,6 +541,13 @@ impl Engine {
             if engine.get("version").is_ok()
                 && (!settings.tun || multilink_platform::tun_adapter_up(TUN_DEVICE))
             {
+                if settings.lan_gateway.is_some() {
+                    let ip = lan_gateway_ip().ok_or("LAN-хост потерял локальный IPv4")?;
+                    let endpoint = std::net::SocketAddr::from((ip, multilink_core::LAN_PORT));
+                    std::net::TcpStream::connect_timeout(&endpoint, Duration::from_millis(500))
+                        .map_err(|_| "Не удалось открыть порт LAN-хоста")?;
+                    engine._lan_discovery = lan_discovery::DiscoveryHost::start(ip).ok();
+                }
                 return Ok(engine);
             }
             std::thread::sleep(Duration::from_millis(150));

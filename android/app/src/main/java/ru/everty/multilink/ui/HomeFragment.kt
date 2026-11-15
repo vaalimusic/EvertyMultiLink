@@ -92,7 +92,7 @@ class HomeFragment : Fragment() {
         }
 
         binding.btnHomeLanSync.setOnClickListener {
-            (activity as? MainActivity)?.showLanSyncDialog()
+            (activity as? MainActivity)?.showLanMenu()
         }
 
         binding.btnHomeShareQr.setOnClickListener {

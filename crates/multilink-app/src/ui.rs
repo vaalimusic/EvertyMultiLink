@@ -276,6 +276,9 @@ impl Canvas<'_> {
             }
             Action::ShareNode(_) | Action::ShareSubscription(_) => true,
             Action::OpenLanSync | Action::CopyQrContent => !self.busy,
+            Action::ToggleLanGateway => !self.locked,
+            Action::ImportNodeFile => !self.locked,
+            Action::ShareLanGateway | Action::CopyLanGatewayKey => !self.busy,
             Action::RankServers => true,
             Action::Compact
             | Action::Expanded
@@ -460,7 +463,7 @@ impl App {
             Page::Subscriptions => self.settings.subscriptions.len(),
             Page::Help => help::COUNT,
             Page::Settings => {
-                let total_content_height: f64 = 835.0;
+                let total_content_height: f64 = 940.0;
                 let step: f64 = 35.0;
                 (total_content_height / step).ceil() as usize
             }
@@ -2064,7 +2067,49 @@ impl App {
                 );
 
                 // Bottom notes & actions
-                let y8 = 915.0 - scroll_y;
+                let gateway_y = 915.0 - scroll_y;
+                c.card(x, gateway_y, card_w, 90.0);
+                c.text(
+                    x + 24.0,
+                    gateway_y + 15.0,
+                    "LAN-хост Everty",
+                    16.0,
+                    TEXT,
+                    true,
+                );
+                c.text(
+                    x + 24.0,
+                    gateway_y + 46.0,
+                    "Устройства с ключом используют правила этого клиента.",
+                    11.0,
+                    MUTED,
+                    false,
+                );
+                c.toggle(
+                    x + card_w - 68.0,
+                    gateway_y + 14.0,
+                    self.settings.lan_gateway.is_some(),
+                    Action::ToggleLanGateway,
+                );
+                if self.settings.lan_gateway.is_some() {
+                    c.button(
+                        x + card_w - 226.0,
+                        gateway_y + 14.0,
+                        140.0,
+                        "QR и ссылка",
+                        Action::ShareLanGateway,
+                        false,
+                    );
+                    c.button(
+                        x + card_w - 226.0,
+                        gateway_y + 53.0,
+                        140.0,
+                        "Копировать ключ",
+                        Action::CopyLanGatewayKey,
+                        false,
+                    );
+                }
+                let y8 = 1020.0 - scroll_y;
                 c.text(
                     x,
                     y8 + 8.0,
@@ -2610,6 +2655,16 @@ impl App {
                     } else {
                         Action::Paste
                     },
+                    false,
+                );
+            }
+            if *modal == Modal::Import {
+                c.button(
+                    mx + 410.0,
+                    my + 177.0,
+                    222.0,
+                    "Открыть файл…",
+                    Action::ImportNodeFile,
                     false,
                 );
             }

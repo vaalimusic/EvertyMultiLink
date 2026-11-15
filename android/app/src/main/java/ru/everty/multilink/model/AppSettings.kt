@@ -52,6 +52,10 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean(KEY_SPLIT_RU, true)
         set(value) = prefs.edit().putBoolean(KEY_SPLIT_RU, value).apply()
 
+    var lanGatewayKey: String?
+        get() = prefs.getString("lan_gateway_key", null)
+        set(value) = prefs.edit().putString("lan_gateway_key", value).apply()
+
     var lastSubscriptionUrl: String?
         get() = prefs.getString(KEY_SUBSCRIPTION_URL, null)
         set(value) = prefs.edit().putString(KEY_SUBSCRIPTION_URL, value).apply()
@@ -188,8 +192,8 @@ class AppSettings(context: Context) {
         val targetSubId = subId ?: getSubscriptions().firstOrNull()?.id ?: "sub_default"
         val taggedNewNodes = newNodes.map { it.copy(subscriptionId = targetSubId) }
 
-        val otherNodes = current.filter { it.subscriptionId != null && it.subscriptionId != targetSubId }
-        val thisSubCurrent = current.filter { it.subscriptionId == null || it.subscriptionId == targetSubId }
+        val otherNodes = current.filter { it.subscriptionId != targetSubId }
+        val thisSubCurrent = current.filter { it.subscriptionId == targetSubId }
 
         val mergedThisSub = mutableListOf<VpnNode>()
         val newSignatures = mutableSetOf<String>()
@@ -211,6 +215,7 @@ class AppSettings(context: Context) {
                     type = n.type,
                     path = n.path,
                     rawUri = n.rawUri,
+                    outbound = n.outbound,
                     subscriptionId = targetSubId
                 )
                 if (existing.name != n.name || existing.sni != n.sni || existing.pbk != n.pbk) {
@@ -246,7 +251,17 @@ class AppSettings(context: Context) {
     }
 
     fun addOrUpdateNodes(newNodes: List<VpnNode>) {
-        syncSubscriptionNodes(newNodes)
+        val current = getNodes().toMutableList()
+        for (node in newNodes) {
+            val index = current.indexOfFirst { it.server == node.server && it.port == node.port &&
+                it.uuid == node.uuid && it.security == node.security }
+            if (index >= 0) {
+                val old = current[index]
+                current[index] = node.copy(id = old.id, isEnabled = old.isEnabled,
+                    isSelected = old.isSelected, subscriptionId = old.subscriptionId)
+            } else current.add(node)
+        }
+        saveNodes(current)
     }
 
     fun getCustomRules(): List<CustomRule> {

@@ -4,6 +4,8 @@ import ru.everty.multilink.model.AppSettings
 import ru.everty.multilink.model.Policy
 import ru.everty.multilink.model.VpnNode
 import java.io.File
+import com.google.gson.Gson
+import ru.everty.multilink.parser.ExtraNodes
 
 object MihomoConfigBuilder {
     const val VPN_DNS = "198.19.255.53"
@@ -14,7 +16,8 @@ object MihomoConfigBuilder {
         upstreamDns: List<String>,
         controllerSecret: String,
         policy: Policy = settings.policy,
-        diagnostic: Boolean = false
+        diagnostic: Boolean = false,
+        lanAddress: String? = null
     ): File {
         outputDir.mkdirs()
         val configFile = File(outputDir, "config.yaml")
@@ -22,6 +25,7 @@ object MihomoConfigBuilder {
         val allNodes = settings.getNodes()
         val enabledNodes = allNodes.filter { it.isEnabled }
         val forcedNode = settings.getForcedNode()
+        val gateway = settings.lanGatewayKey
 
         val sb = StringBuilder()
         sb.appendLine("mixed-port: 7890")
@@ -67,6 +71,14 @@ object MihomoConfigBuilder {
         } else {
             allNodes.take(1)
         }
+        if (gateway != null) {
+            require(lanAddress != null && ExtraNodes.privateIpv4(lanAddress) && gateway.matches(Regex("[0-9a-f]{32}"))) {
+                "Для LAN-хоста нужна Wi-Fi или Ethernet сеть с частным IPv4"
+            }
+            require(nodesToInclude.none { it.security == "lan" }) {
+                "Отключите LAN-серверы перед включением LAN-хоста"
+            }
+        }
 
         val proxyNames = mutableListOf<String>()
 
@@ -74,6 +86,10 @@ object MihomoConfigBuilder {
             val safeName = "NODE_$index"
             proxyNames.add(safeName)
 
+            node.outbound?.let {
+                sb.appendLine("  - " + Gson().toJson(it + ("name" to safeName)))
+            }
+            if (node.outbound != null) continue
             sb.appendLine("  - name: \"$safeName\"")
             sb.appendLine("    type: vless")
             sb.appendLine("    server: \"${node.server}\"")
@@ -156,7 +172,20 @@ object MihomoConfigBuilder {
             sb.appendLine("rule-providers:")
             sb.appendLine("  RU-SITES: {type: file, behavior: domain, format: mrs, path: ./category-ru.mrs}")
         }
+        if (gateway != null) {
+            val listener = mapOf("name" to "everty-lan", "type" to "shadowsocks",
+                "listen" to lanAddress, "port" to ExtraNodes.LAN_PORT, "cipher" to ExtraNodes.LAN_CIPHER,
+                "password" to gateway, "udp" to true)
+            sb.appendLine("listeners:")
+            sb.appendLine("  - " + Gson().toJson(listener))
+        }
         sb.appendLine("rules:")
+        if (gateway != null) {
+            for (cidr in listOf("127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",
+                    "169.254.0.0/16", "::1/128", "fc00::/7", "fe80::/10")) {
+                sb.appendLine("  - AND,((IN-NAME,everty-lan),(IP-CIDR,$cidr)),REJECT")
+            }
+        }
         sb.appendLine("  - AND,((IP-CIDR,$VPN_DNS/32,no-resolve),(DST-PORT,53)),VPN_DNS")
         // User rules take precedence over the default country split.
         for (rule in settings.getCustomRules()) {

@@ -13,6 +13,7 @@ import ru.everty.multilink.BuildConfig
 import ru.everty.multilink.R
 import ru.everty.multilink.core.MihomoConfigBuilder
 import ru.everty.multilink.core.LanRoutes
+import ru.everty.multilink.core.LanGateway
 import ru.everty.multilink.model.AppSettings
 import ru.everty.multilink.model.Policy
 import ru.everty.multilink.ui.MainActivity
@@ -42,6 +43,7 @@ class EvertyVpnService : VpnService() {
     }
 
     private var vpnInterface: ParcelFileDescriptor? = null
+    @Volatile private var lanDiscovery: java.net.DatagramSocket? = null
     private val isRunning = AtomicBoolean(false)
     private var workerThread: Thread? = null
     private var mihomoProcess: Process? = null
@@ -104,13 +106,15 @@ class EvertyVpnService : VpnService() {
                     ?.dnsServers.orEmpty().filterIsInstance<java.net.Inet4Address>()
                     .mapNotNull { it.hostAddress }.distinct()
                 val controllerSecret = UUID.randomUUID().toString()
+                val lanAddress = if (settings.lanGatewayKey == null) null else LanGateway.address(this)
                 val configFile = MihomoConfigBuilder.generateConfig(
                     outputDir = mihomoDir,
                     settings = settings,
                     upstreamDns = upstreamDns,
                     controllerSecret = controllerSecret,
                     policy = testPolicy ?: settings.policy,
-                    diagnostic = diagnostic
+                    diagnostic = diagnostic,
+                    lanAddress = lanAddress
                 )
                 Log.d(TAG, "Generated Mihomo config at ${configFile.absolutePath}")
 
@@ -215,6 +219,13 @@ class EvertyVpnService : VpnService() {
                         Log.w(TAG, "Network callback registration skipped: ${e.message}")
                     }
 
+                    if (lanAddress != null) {
+                        java.net.Socket().use { socket ->
+                            socket.connect(java.net.InetSocketAddress(lanAddress,
+                                ru.everty.multilink.parser.ExtraNodes.LAN_PORT), 500)
+                        }
+                        lanDiscovery = runCatching { LanGateway.advertise(lanAddress) }.getOrNull()
+                    }
                     broadcastState(STATE_CONNECTED)
                     startForeground(1001, buildNotification("Защищено через ${selectedNode.name}", true))
                     Log.d(TAG, "VPN Connected and Tun2Socks running.")
@@ -278,6 +289,8 @@ class EvertyVpnService : VpnService() {
         }
         Log.d(TAG, "Disconnecting VPN...")
         isRunning.set(false)
+        lanDiscovery?.close()
+        lanDiscovery = null
         workerThread?.interrupt()
         workerThread = null
 

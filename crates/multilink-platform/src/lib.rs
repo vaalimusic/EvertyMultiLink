@@ -1,4 +1,6 @@
 use std::{io, path::PathBuf};
+mod lan_address;
+pub use lan_address::lan_ipv4;
 
 pub fn ensure_loopback_port_free(port: u16) -> io::Result<()> {
     #[cfg(target_os = "macos")]
@@ -75,6 +77,16 @@ pub fn open_project_site(url: &str) -> io::Result<()> {
 
 #[cfg(windows)]
 pub fn routing_file_dialog(save: bool) -> io::Result<Option<PathBuf>> {
+    network_file_dialog(save, false)
+}
+
+#[cfg(windows)]
+pub fn node_file_dialog() -> io::Result<Option<PathBuf>> {
+    network_file_dialog(false, true)
+}
+
+#[cfg(windows)]
+fn network_file_dialog(save: bool, nodes: bool) -> io::Result<Option<PathBuf>> {
     use std::os::windows::ffi::OsStringExt;
     use windows_sys::Win32::UI::Controls::Dialogs::*;
     let mut file = vec![0u16; 32768];
@@ -83,11 +95,17 @@ pub fn routing_file_dialog(save: bool) -> io::Result<Option<PathBuf>> {
             *slot = ch;
         }
     }
-    let filter: Vec<u16> = "MultiLink routes (*.json)\0*.json\0\0"
+    let filter: Vec<u16> = if nodes {
+        "Configurations (*.conf, *.json, *.yaml, *.txt)\0*.conf;*.json;*.yaml;*.yml;*.txt\0All files\0*.*\0\0"
+    } else {
+        "MultiLink routes (*.json)\0*.json\0\0"
+    }
         .encode_utf16()
         .collect();
     let extension: Vec<u16> = "json\0".encode_utf16().collect();
-    let title: Vec<u16> = if save {
+    let title: Vec<u16> = if nodes {
+        "Импорт серверов из файла"
+    } else if save {
         "Экспорт маршрутов"
     } else {
         "Импорт маршрутов"
@@ -127,6 +145,16 @@ pub fn routing_file_dialog(save: bool) -> io::Result<Option<PathBuf>> {
     }
     let end = file.iter().position(|ch| *ch == 0).unwrap_or(file.len());
     Ok(Some(std::ffi::OsString::from_wide(&file[..end]).into()))
+}
+
+#[cfg(target_os = "macos")]
+pub fn node_file_dialog() -> io::Result<Option<PathBuf>> {
+    macos_file_dialog(false, "config.conf")
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn node_file_dialog() -> io::Result<Option<PathBuf>> {
+    routing_file_dialog(false)
 }
 
 #[cfg(windows)]

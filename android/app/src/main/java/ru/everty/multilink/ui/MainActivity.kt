@@ -184,6 +184,52 @@ class MainActivity : AppCompatActivity() {
         qrScannerLauncher.launch(options)
     }
 
+    fun showLanMenu() {
+        MaterialAlertDialogBuilder(this).setTitle("Локальная сеть")
+            .setItems(arrayOf("Обмен подписками", "LAN-хост Everty", "Добавить LAN-сервер")) { _, choice ->
+                when (choice) {
+                    0 -> showLanSyncDialog()
+                    1 -> showLanGatewayDialog()
+                    else -> {
+                        val field = android.widget.EditText(this).apply { hint = "everty-lan://…" }
+                        MaterialAlertDialogBuilder(this).setTitle("Ключ или ссылка LAN")
+                            .setView(field).setNegativeButton("Отмена", null)
+                            .setPositiveButton("Подключить") { _, _ -> handleScannedQr(field.text.toString()) }
+                            .show()
+                    }
+                }
+            }.show()
+    }
+
+    private fun showLanGatewayDialog() {
+        val key = settings.lanGatewayKey
+        val address = ru.everty.multilink.core.LanGateway.address(this)
+        val link = if (key != null && address != null) ru.everty.multilink.core.LanGateway.link(key, address) else null
+        val builder = MaterialAlertDialogBuilder(this)
+            .setTitle("LAN-хост Everty")
+            .setMessage("Доступ по ключу из той же Wi-Fi или Ethernet сети. Хост применяет свои правила к трафику устройств. Изменение вступит в силу при следующем подключении.")
+            .setNegativeButton("Закрыть", null)
+        if (EvertyVpnService.currentState == EvertyVpnService.STATE_DISCONNECTED) {
+            builder.setNeutralButton(if (key == null) "Включить" else "Выключить") { _, _ ->
+                settings.lanGatewayKey = if (key == null) java.util.UUID.randomUUID().toString().replace("-", "") else null
+                showLanGatewayDialog()
+            }
+        }
+        if (link != null) {
+            builder.setPositiveButton("Копировать ссылку") { _, _ ->
+                getSystemService(android.content.ClipboardManager::class.java)
+                    .setPrimaryClip(android.content.ClipData.newPlainText("Everty LAN", link))
+            }
+            if (EvertyVpnService.currentState == EvertyVpnService.STATE_CONNECTED) {
+                builder.setNeutralButton("Копировать ключ") { _, _ ->
+                    getSystemService(android.content.ClipboardManager::class.java).setPrimaryClip(
+                        android.content.ClipData.newPlainText("Everty LAN", "everty-lan://$key"))
+                }
+            }
+        }
+        builder.show()
+    }
+
     fun showLanSyncDialog() {
         val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_lan_sync, null)
         val tvTitle = dialogView.findViewById<TextView>(R.id.tvLanTitle)
@@ -546,8 +592,21 @@ class MainActivity : AppCompatActivity() {
         pagerAdapter.serversFragment.refreshList()
     }
 
-    private fun handleScannedQr(content: String) {
+    internal fun handleScannedQr(content: String) {
         val trimmed = content.trim()
+        if (trimmed.matches(Regex("everty-lan://[0-9a-fA-F]{32}"))) {
+            Thread {
+                val resolved = runCatching { ru.everty.multilink.core.LanGateway.expand(this, trimmed) }
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    val link = resolved.getOrNull()
+                    if (link != null) handleScannedQr(link)
+                    else Toast.makeText(this, "Поиск LAN не дал одного хоста. Используйте полную ссылку с IP.",
+                        Toast.LENGTH_LONG).show()
+                }
+            }.start()
+            return
+        }
         if (trimmed.startsWith("http://") && trimmed.contains("?pin=")) {
             val pin = trimmed.substringAfter("?pin=")
             val subs = settings.getSubscriptions()
@@ -614,7 +673,7 @@ class MainActivity : AppCompatActivity() {
             } else {
                 val nodes = ConfigParser.parse(trimmed)
                 if (nodes.isNotEmpty()) {
-                    settings.syncSubscriptionNodes(nodes)
+                    settings.addOrUpdateNodes(nodes)
                     notifyNodesChanged()
                     Toast.makeText(this, "Добавлено ${nodes.size} узлов", Toast.LENGTH_SHORT).show()
                 } else {

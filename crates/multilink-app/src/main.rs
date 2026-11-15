@@ -304,7 +304,8 @@ fn worker(rx: mpsc::Receiver<Command>, tx: UiUpdates) {
                             .and_then(|s| multilink_core::import_subscription(&s))
                     })
                 } else {
-                    multilink_core::import_subscription(&input)
+                    multilink_mihomo::expand_lan_link(&input)
+                        .and_then(|input| multilink_core::import_subscription(&input))
                 };
                 let update = match result {
                     Ok(nodes) => Update::Imported(nodes, url, source),
@@ -491,6 +492,10 @@ enum Action {
     DeleteSubscription(u64),
     ToggleAutoconnect,
     ToggleRulesOnly,
+    ToggleLanGateway,
+    ShareLanGateway,
+    CopyLanGatewayKey,
+    ImportNodeFile,
     OpenSetPin,
     RemovePin,
     LockPin,
@@ -1356,6 +1361,10 @@ impl App {
                 | Action::ToggleAutostart
                 | Action::ToggleAutoconnect
                 | Action::ToggleRulesOnly
+                | Action::ToggleLanGateway
+                | Action::ShareLanGateway
+                | Action::CopyLanGatewayKey
+                | Action::ImportNodeFile
                 | Action::Policy
                 | Action::OpenSetPin
                 | Action::RemovePin
@@ -1459,6 +1468,59 @@ impl App {
                 };
                 if multilink_platform::open_project_site(url).is_err() {
                     self.notify(format!("Не удалось открыть браузер: {url}"));
+                }
+            }
+            Action::ToggleLanGateway if !self.connected && !self.busy => {
+                self.settings.lan_gateway = if self.settings.lan_gateway.is_some() {
+                    None
+                } else {
+                    Some(uuid::Uuid::new_v4().simple().to_string())
+                };
+                self.save();
+            }
+            Action::ImportNodeFile if !self.connected && !self.busy => {
+                use std::io::Read;
+                match multilink_platform::node_file_dialog() {
+                    Ok(Some(path)) => {
+                        let mut contents = String::new();
+                        let read = std::fs::File::open(path).and_then(|file| {
+                            file.take(4 * 1024 * 1024 + 1).read_to_string(&mut contents)
+                        });
+                        if read.is_ok() && contents.len() <= 4 * 1024 * 1024 {
+                            self.edit.set_text(&contents);
+                            self.action(Action::Submit);
+                        } else {
+                            self.notify(
+                                "Файл не удалось прочитать как UTF-8 или он превышает 4 МБ",
+                            );
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(_) => self.notify("Не удалось открыть выбор файла"),
+                }
+            }
+            Action::ShareLanGateway => {
+                if let (Some(key), Some(ip)) = (
+                    &self.settings.lan_gateway,
+                    multilink_mihomo::lan_gateway_ip(),
+                ) {
+                    self.modal = Some(Modal::ShareQr {
+                        title: "LAN-хост Everty".into(),
+                        content: format!("everty-lan://{key}@{ip}:{}", multilink_core::LAN_PORT),
+                        caption: "Импортируйте ссылку как сервер на устройстве в той же сети."
+                            .into(),
+                    });
+                } else {
+                    self.notify("Для LAN-хоста нужен частный IPv4-адрес");
+                }
+            }
+            Action::CopyLanGatewayKey => {
+                if let Some(key) = &self.settings.lan_gateway {
+                    if let Ok(mut clipboard) = arboard::Clipboard::new() {
+                        if clipboard.set_text(format!("everty-lan://{key}")).is_ok() {
+                            self.notify("Ключ LAN скопирован. Вставьте его в импорт серверов");
+                        }
+                    }
                 }
             }
             Action::CopyQrContent => {

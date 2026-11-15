@@ -9,6 +9,8 @@ mod profile;
 pub use profile::*;
 mod access;
 pub use access::*;
+mod extra_import;
+pub use extra_import::{is_lan_node, LAN_CIPHER, LAN_PORT};
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct NodeQuality {
@@ -190,6 +192,8 @@ impl Policy {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Settings {
+    #[serde(default)]
+    pub lan_gateway: Option<String>,
     #[serde(default = "default_language")]
     pub language: String,
     #[serde(default)]
@@ -295,6 +299,7 @@ pub fn server_route_name(target: &str) -> Option<String> {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            lan_gateway: None,
             language: default_language(),
             access: None,
             pending_activation: None,
@@ -423,14 +428,27 @@ impl RoutingConfig {
 /// Parse the entire payload before committing anything. Unknown URI parameters
 /// are errors, rather than silently changing transport or security semantics.
 pub fn parse_subscription(input: &str) -> Result<Vec<Node>, String> {
-    let input = input.trim();
+    let input = input.trim().trim_start_matches('\u{feff}').trim();
     if input.len() > 4 * 1024 * 1024 {
         return Err("Подписка превышает 4 МБ".into());
+    }
+    if input.starts_with("everty-lan://") {
+        return extra_import::lan_node(input);
+    }
+    if input
+        .lines()
+        .take(20)
+        .any(|line| line.trim() == "[Interface]")
+    {
+        return extra_import::amnezia_conf(input);
     }
     if input.starts_with('{') {
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(input) {
             if value.get("format").is_some() {
                 return ProfileDocument::decode(input)?.into_nodes();
+            }
+            if value.get("outbounds").is_some() {
+                return extra_import::xray_vless(&value);
             }
         }
     }

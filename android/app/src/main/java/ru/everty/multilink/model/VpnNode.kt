@@ -18,7 +18,8 @@ data class VpnNode(
     var isEnabled: Boolean = true,
     var isSelected: Boolean = false,
     val rawUri: String = "",
-    var subscriptionId: String? = null
+    var subscriptionId: String? = null,
+    val outbound: Map<String, Any>? = null
 ) {
     fun getDisplayDetails(): String {
         return "${security.uppercase()} • ${type.uppercase()} • $server:$port"

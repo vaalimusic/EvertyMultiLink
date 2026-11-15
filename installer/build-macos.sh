@@ -56,7 +56,7 @@ with open(sys.argv[1], 'wb') as f:
         CFBundleVersion=sys.argv[2], CFBundleIconFile='AppIcon', LSMinimumSystemVersion='11.0',
         CFBundleDevelopmentRegion='ru', CFBundleLocalizations=['ru', 'en', 'de', 'es', 'zh'],
         LSApplicationCategoryType='public.app-category.utilities',
-        NSHighResolutionCapable=True, NSLocalNetworkUsageDescription='Обмен подписками с вашими устройствами в локальной сети.'), f)
+        NSHighResolutionCapable=True, NSLocalNetworkUsageDescription='Обмен подписками, поиск и подключение к LAN-хосту Everty.'), f)
 PY
 # Local ad-hoc signature. Distribution signing and notarization require Developer ID.
 codesign --force --sign - "$app/Contents/MacOS/mihomo"

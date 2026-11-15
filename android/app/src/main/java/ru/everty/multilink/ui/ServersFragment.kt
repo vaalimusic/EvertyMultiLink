@@ -10,6 +10,7 @@ import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.button.MaterialButton
@@ -31,6 +32,31 @@ class ServersFragment : Fragment() {
     private lateinit var settings: AppSettings
     private lateinit var subsAdapter: SubscriptionsAdapter
     private lateinit var adapter: NodesAdapter
+    private val configFilePicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null && isAdded) {
+            val nodes = runCatching {
+                requireContext().contentResolver.openInputStream(uri)?.use { input ->
+                    val bytes = java.io.ByteArrayOutputStream()
+                    val buffer = ByteArray(8192)
+                    while (true) {
+                        val size = input.read(buffer)
+                        if (size < 0) break
+                        require(bytes.size() + size <= 4 * 1024 * 1024)
+                        bytes.write(buffer, 0, size)
+                    }
+                    ConfigParser.parse(bytes.toString("UTF-8"))
+                }.orEmpty()
+            }.getOrDefault(emptyList())
+            if (nodes.isEmpty()) {
+                Toast.makeText(requireContext(), "Не удалось прочитать файл конфигурации", Toast.LENGTH_LONG).show()
+            } else {
+                settings.addOrUpdateNodes(nodes)
+                if (_binding != null) refreshList()
+                (activity as? MainActivity)?.notifyNodesChanged()
+                Toast.makeText(requireContext(), "Добавлено ${nodes.size} узлов", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -155,6 +181,7 @@ class ServersFragment : Fragment() {
 
         val dialog = MaterialAlertDialogBuilder(requireContext())
             .setView(dialogView)
+            .setNeutralButton("Открыть файл .conf") { _, _ -> configFilePicker.launch(arrayOf("*/*")) }
             .create()
 
         btnPaste.setOnClickListener {
@@ -181,19 +208,20 @@ class ServersFragment : Fragment() {
             if (text.startsWith("http://") || text.startsWith("https://")) {
                 dialog.dismiss()
                 (activity as? MainActivity)?.fetchSubscription(text, isManual = true)
-            } else if (text.contains("vless://")) {
+            } else if (text.startsWith("everty-lan://")) {
+                dialog.dismiss()
+                (activity as? MainActivity)?.handleScannedQr(text)
+            } else {
                 val nodes = ConfigParser.parse(text)
                 if (nodes.isNotEmpty()) {
-                    settings.syncSubscriptionNodes(nodes)
+                    settings.addOrUpdateNodes(nodes)
                     dialog.dismiss()
                     refreshList()
                     (activity as? MainActivity)?.notifyNodesChanged()
                     Toast.makeText(requireContext(), "Добавлено ${nodes.size} узлов", Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(requireContext(), "Неверный формат VLESS", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(requireContext(), "Не удалось прочитать конфигурацию", Toast.LENGTH_SHORT).show()
                 }
-            } else {
-                Toast.makeText(requireContext(), "Неподдерживаемый формат ссылки", Toast.LENGTH_SHORT).show()
             }
         }
 

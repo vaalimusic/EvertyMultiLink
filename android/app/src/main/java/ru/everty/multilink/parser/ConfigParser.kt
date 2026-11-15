@@ -10,8 +10,17 @@ import java.util.UUID
 object ConfigParser {
 
     fun parse(rawInput: String): List<VpnNode> {
-        val trimmed = rawInput.trim()
-        if (trimmed.isEmpty()) return emptyList()
+        val trimmed = rawInput.trim().removePrefix("\uFEFF").trim()
+        if (trimmed.isEmpty() || trimmed.length > 4 * 1024 * 1024) return emptyList()
+        if (trimmed.startsWith("everty-lan://")) {
+            return runCatching { listOf(ExtraNodes.lan(trimmed)) }.getOrDefault(emptyList())
+        }
+        if (trimmed.startsWith("{")) {
+            return runCatching { ExtraNodes.xray(org.json.JSONObject(trimmed)) }.getOrDefault(emptyList())
+        }
+        if (trimmed.lineSequence().take(20).any { it.trim() == "[Interface]" }) {
+            return runCatching { listOf(ExtraNodes.wireguard(trimmed)) }.getOrDefault(emptyList())
+        }
 
         // 1. Direct vless:// or multi-line vless://
         if (trimmed.contains("vless://")) {
