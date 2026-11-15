@@ -6,10 +6,15 @@ import ru.everty.multilink.model.VpnNode
 import java.io.File
 
 object MihomoConfigBuilder {
+    const val VPN_DNS = "198.19.255.53"
 
     fun generateConfig(
         outputDir: File,
-        settings: AppSettings
+        settings: AppSettings,
+        upstreamDns: List<String>,
+        controllerSecret: String,
+        policy: Policy = settings.policy,
+        diagnostic: Boolean = false
     ): File {
         outputDir.mkdirs()
         val configFile = File(outputDir, "config.yaml")
@@ -22,22 +27,38 @@ object MihomoConfigBuilder {
         sb.appendLine("mixed-port: 7890")
         sb.appendLine("allow-lan: false")
         sb.appendLine("mode: rule")
-        sb.appendLine("log-level: warning")
+        sb.appendLine(if (diagnostic) "log-level: info" else "log-level: warning")
         sb.appendLine("ipv6: false")
         sb.appendLine("external-controller: 127.0.0.1:9090")
+        sb.appendLine("secret: '$controllerSecret'")
+        sb.appendLine("sniffer:")
+        sb.appendLine("  enable: true")
+        sb.appendLine("  override-destination: false")
+        sb.appendLine("  sniff:")
+        sb.appendLine("    HTTP: {ports: [80, 8080-8880]}")
+        sb.appendLine("    TLS: {ports: [443, 8443]}")
+        sb.appendLine("    QUIC: {ports: [443, 8443]}")
         sb.appendLine()
 
         sb.appendLine("dns:")
         sb.appendLine("  enable: true")
         sb.appendLine("  listen: 127.0.0.1:1053")
         sb.appendLine("  enhanced-mode: fake-ip")
+        sb.appendLine("  fake-ip-filter: ['localhost', '+.local', '+.lan', '+.home.arpa', '+.in-addr.arpa', '+.ip6.arpa']")
         sb.appendLine("  nameserver:")
         sb.appendLine("    - 1.1.1.1")
         sb.appendLine("    - 8.8.8.8")
-        sb.appendLine("    - 77.88.8.8")
+        if (upstreamDns.isNotEmpty()) {
+            sb.appendLine("  direct-nameserver:")
+            upstreamDns.forEach { sb.appendLine("    - '$it'") }
+            sb.appendLine("  nameserver-policy:")
+            sb.appendLine("    '+.lan,+.home.arpa,+.in-addr.arpa,+.ip6.arpa':")
+            upstreamDns.forEach { sb.appendLine("      - '$it'") }
+        }
         sb.appendLine()
 
         sb.appendLine("proxies:")
+        sb.appendLine("  - {name: VPN_DNS, type: dns}")
 
         val nodesToInclude = if (forcedNode != null && forcedNode.isEnabled) {
             listOf(forcedNode)
@@ -92,7 +113,7 @@ object MihomoConfigBuilder {
             mainProxyTarget = "MULTI_LINK"
             sb.appendLine("proxy-groups:")
             sb.appendLine("  - name: MULTI_LINK")
-            when (settings.policy) {
+            when (policy) {
                 Policy.BALANCE -> {
                     sb.appendLine("    type: load-balance")
                     sb.appendLine("    strategy: round-robin")
@@ -131,27 +152,22 @@ object MihomoConfigBuilder {
             mainProxyTarget = "DIRECT"
         }
 
+        if (settings.isSplitRuEnabled) {
+            sb.appendLine("rule-providers:")
+            sb.appendLine("  RU-SITES: {type: file, behavior: domain, format: mrs, path: ./category-ru.mrs}")
+        }
         sb.appendLine("rules:")
-        // 1. Split RU rules
+        sb.appendLine("  - AND,((IP-CIDR,$VPN_DNS/32,no-resolve),(DST-PORT,53)),VPN_DNS")
+        // User rules take precedence over the default country split.
+        for (rule in settings.getCustomRules()) {
+            sb.appendLine("  - ${rule.toMihomoRule(mainProxyTarget)}")
+        }
         if (settings.isSplitRuEnabled) {
             sb.appendLine("  - DOMAIN-SUFFIX,ru,DIRECT")
-            sb.appendLine("  - DOMAIN-SUFFIX,рф,DIRECT")
+            sb.appendLine("  - DOMAIN-SUFFIX,xn--p1ai,DIRECT")
             sb.appendLine("  - DOMAIN-SUFFIX,su,DIRECT")
-            sb.appendLine("  - DOMAIN-SUFFIX,gosuslugi.ru,DIRECT")
-            sb.appendLine("  - DOMAIN-SUFFIX,sber.ru,DIRECT")
-            sb.appendLine("  - DOMAIN-SUFFIX,tinkoff.ru,DIRECT")
-            sb.appendLine("  - DOMAIN-SUFFIX,yandex.ru,DIRECT")
-            sb.appendLine("  - DOMAIN-SUFFIX,vk.com,DIRECT")
-            sb.appendLine("  - GEOIP,RU,DIRECT")
+            sb.appendLine("  - RULE-SET,RU-SITES,DIRECT")
         }
-
-        // 2. Custom User Rules
-        val customRules = settings.getCustomRules()
-        for (cr in customRules) {
-            sb.appendLine("  - ${cr.toMihomoRule(mainProxyTarget)}")
-        }
-
-        // 3. Fallback
         sb.appendLine("  - MATCH,$mainProxyTarget")
 
         configFile.writeText(sb.toString())

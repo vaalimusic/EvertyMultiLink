@@ -9,13 +9,20 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import ru.everty.multilink.EvertyApp
+import ru.everty.multilink.BuildConfig
 import ru.everty.multilink.R
 import ru.everty.multilink.core.MihomoConfigBuilder
+import ru.everty.multilink.core.LanRoutes
 import ru.everty.multilink.model.AppSettings
+import ru.everty.multilink.model.Policy
 import ru.everty.multilink.ui.MainActivity
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.Proxy
+import java.net.URL
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 class EvertyVpnService : VpnService() {
@@ -30,7 +37,7 @@ class EvertyVpnService : VpnService() {
         const val STATE_CONNECTING = 1
         const val STATE_CONNECTED = 2
 
-        var currentState = STATE_DISCONNECTED
+        @Volatile var currentState = STATE_DISCONNECTED
             private set
     }
 
@@ -49,13 +56,15 @@ class EvertyVpnService : VpnService() {
                 stopSelf()
             }
             ACTION_CONNECT -> {
-                connect()
+                val policy = if (BuildConfig.DEBUG) intent.getStringExtra("testPolicy")
+                    ?.let { value -> Policy.entries.firstOrNull { it.name == value } } else null
+                connect(policy, BuildConfig.DEBUG && intent.getBooleanExtra("testDiagnostics", false))
             }
         }
         return START_NOT_STICKY
     }
 
-    private fun connect() {
+    private fun connect(testPolicy: Policy?, diagnostic: Boolean) {
         isDisconnecting.set(false)
         val settings = AppSettings(this)
         val selectedNode = settings.getSelectedNode()
@@ -85,9 +94,23 @@ class EvertyVpnService : VpnService() {
             try {
                 // 1. Prepare Mihomo configuration
                 val mihomoDir = File(filesDir, "mihomo").apply { mkdirs() }
+                if (settings.isSplitRuEnabled) {
+                    assets.open("category-ru.mrs").use { source ->
+                        File(mihomoDir, "category-ru.mrs").outputStream().use { source.copyTo(it) }
+                    }
+                }
+                val manager = getSystemService(android.net.ConnectivityManager::class.java)
+                val upstreamDns = manager.activeNetwork?.let(manager::getLinkProperties)
+                    ?.dnsServers.orEmpty().filterIsInstance<java.net.Inet4Address>()
+                    .mapNotNull { it.hostAddress }.distinct()
+                val controllerSecret = UUID.randomUUID().toString()
                 val configFile = MihomoConfigBuilder.generateConfig(
                     outputDir = mihomoDir,
-                    settings = settings
+                    settings = settings,
+                    upstreamDns = upstreamDns,
+                    controllerSecret = controllerSecret,
+                    policy = testPolicy ?: settings.policy,
+                    diagnostic = diagnostic
                 )
                 Log.d(TAG, "Generated Mihomo config at ${configFile.absolutePath}")
 
@@ -98,7 +121,7 @@ class EvertyVpnService : VpnService() {
 
                 // 3. Start Mihomo Core
                 Log.d(TAG, "Starting Mihomo process: $actualMihomo -d ${mihomoDir.absolutePath}")
-                val mihomoPb = ProcessBuilder(actualMihomo, "-d", mihomoDir.absolutePath)
+                val mihomoPb = ProcessBuilder(actualMihomo, "-d", mihomoDir.absolutePath, "-f", configFile.absolutePath)
                     .redirectErrorStream(true)
                 val proc = mihomoPb.start()
                 mihomoProcess = proc
@@ -115,26 +138,17 @@ class EvertyVpnService : VpnService() {
                     } catch (_: Exception) {}
                 }.start()
 
-                // Wait for Mihomo to bind 127.0.0.1:7890
-                Thread.sleep(600)
+                awaitMihomo(proc, controllerSecret)
 
                 // 4. Establish Android VPN TUN interface
                 val sessionTitle = settings.getForcedNode()?.name ?: "MultiLink: ${settings.policy.label}"
                 val builder = Builder()
                     .setSession("Everty: $sessionTitle")
-                    .addAddress("172.19.0.1", 30)
-                    .addDnsServer("1.1.1.1")
-                    .addDnsServer("8.8.8.8")
+                    .addAddress("198.19.255.1", 30)
+                    .addDnsServer(MihomoConfigBuilder.VPN_DNS)
                     .setMtu(1400)
-                    .addRoute("0.0.0.0", 0)
-
-                // Intercept IPv6 to prevent cellular ISP leak
-                try {
-                    builder.addAddress("2001:db8:1234::1", 64)
-                    builder.addRoute("::", 0)
-                } catch (e: Exception) {
-                    Log.w(TAG, "IPv6 route setup skipped: ${e.message}")
-                }
+                    .addAddress("2001:db8:1234::1", 64)
+                LanRoutes.addTo(builder)
 
                 // Per-App Split Tunneling or default self-exclusion
                 if (settings.isPerAppVpnEnabled && settings.perAppVpnPackages.isNotEmpty()) {
@@ -235,6 +249,26 @@ class EvertyVpnService : VpnService() {
                 stopSelf()
             }
         }.apply { start() }
+    }
+
+    private fun awaitMihomo(process: Process, secret: String) {
+        val deadline = android.os.SystemClock.elapsedRealtime() + 10_000
+        while (process.isAlive && android.os.SystemClock.elapsedRealtime() < deadline) {
+            val connection = URL("http://127.0.0.1:9090/version")
+                .openConnection(Proxy.NO_PROXY) as HttpURLConnection
+            try {
+                connection.connectTimeout = 250
+                connection.readTimeout = 250
+                connection.setRequestProperty("Authorization", "Bearer $secret")
+                if (connection.responseCode == 200) return
+            } catch (_: java.io.IOException) {
+                // Core is still starting.
+            } finally {
+                connection.disconnect()
+            }
+            Thread.sleep(100)
+        }
+        error("Mihomo did not start or rejected its configuration")
     }
 
     private fun disconnect() {
