@@ -62,8 +62,13 @@ fn start_mihomo_for_node(node: &Node) -> Result<TestEngine, String> {
 
     let binary = multilink_mihomo::binary();
     let mut cmd = Command::new(binary);
-    cmd.arg("-d").arg(&dir).arg("-f").arg(&config_path)
-        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    cmd.arg("-d")
+        .arg(&dir)
+        .arg("-f")
+        .arg(&config_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -109,7 +114,10 @@ fn start_mihomo_for_node(node: &Node) -> Result<TestEngine, String> {
 fn fetch_mihomo_connections(engine: &TestEngine) -> (usize, u64, u64, Vec<String>) {
     let client = Client::builder().no_proxy().build().unwrap();
     let res: Value = client
-        .get(format!("http://127.0.0.1:{}/connections", engine.controller_port))
+        .get(format!(
+            "http://127.0.0.1:{}/connections",
+            engine.controller_port
+        ))
         .bearer_auth(&engine.secret)
         .send()
         .unwrap()
@@ -158,11 +166,15 @@ fn run_chromium_nav(
 }
 
 fn main() {
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
     println!("EXPERIMENT A: REAL CHROMIUM BROWSER CONNECTION REUSE & MULTIPLEXING");
     println!("Target Browser: Microsoft Edge (Chromium Engine)");
     println!("Inspecting Active TCP/TLS/VLESS Sockets via Mihomo /connections API");
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
 
     let edge_path = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
     if !std::path::Path::new(edge_path).is_file() {
@@ -189,7 +201,8 @@ fn main() {
     println!("Mihomo running on port {}", engine.mixed_port);
 
     // Create an isolated profile directory
-    let browser_dir = std::env::temp_dir().join(format!("edge-reuse-profile-{}", uuid::Uuid::new_v4()));
+    let browser_dir =
+        std::env::temp_dir().join(format!("edge-reuse-profile-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&browser_dir).unwrap();
 
     let test_site = "https://en.wikipedia.org/wiki/Main_Page";
@@ -198,29 +211,55 @@ fn main() {
     // -------------------------------------------------------------------------
     // Phase 1: Cold Navigation (Fresh profile, cold DNS + fresh VLESS sockets)
     // -------------------------------------------------------------------------
-    println!("\n--- Phase 1: Cold Navigation (First Visit to {}) ---", test_site);
+    println!(
+        "\n--- Phase 1: Cold Navigation (First Visit to {}) ---",
+        test_site
+    );
     let (t_cold, ok_cold) = run_chromium_nav(edge_path, &browser_dir, engine.mixed_port, test_site);
     let (conns_after_cold, up_cold, down_cold, hosts_cold) = fetch_mihomo_connections(&engine);
 
-    println!("  * Cold Load Completed in: {:.1} ms (success: {})", t_cold, ok_cold);
-    println!("  * Outbound Sockets opened through Mihomo: {}", conns_after_cold);
-    println!("  * Transferred: Upload {:.1} KB, Download {:.1} KB", up_cold as f64 / 1024.0, down_cold as f64 / 1024.0);
+    println!(
+        "  * Cold Load Completed in: {:.1} ms (success: {})",
+        t_cold, ok_cold
+    );
+    println!(
+        "  * Outbound Sockets opened through Mihomo: {}",
+        conns_after_cold
+    );
+    println!(
+        "  * Transferred: Upload {:.1} KB, Download {:.1} KB",
+        up_cold as f64 / 1024.0,
+        down_cold as f64 / 1024.0
+    );
     println!("  * Unique Domains connected: {:?}", hosts_cold);
 
     // -------------------------------------------------------------------------
     // Phase 2: Warm Internal Navigation (Same profile, immediate subpage click)
     // -------------------------------------------------------------------------
-    println!("\n--- Phase 2: Warm Subpage Navigation (Internal transition to {}) ---", subpage_site);
+    println!(
+        "\n--- Phase 2: Warm Subpage Navigation (Internal transition to {}) ---",
+        subpage_site
+    );
     let prev_conns = conns_after_cold;
-    let (t_warm, ok_warm) = run_chromium_nav(edge_path, &browser_dir, engine.mixed_port, subpage_site);
+    let (t_warm, ok_warm) =
+        run_chromium_nav(edge_path, &browser_dir, engine.mixed_port, subpage_site);
     let (conns_after_warm, up_warm, down_warm, _hosts_warm) = fetch_mihomo_connections(&engine);
 
     let new_conns = conns_after_warm.saturating_sub(prev_conns);
-    println!("  * Warm Subpage Load Completed in: {:.1} ms (success: {})", t_warm, ok_warm);
-    println!("  * NEW Sockets opened during transition: {} (vs {} on cold)", new_conns, conns_after_cold);
+    println!(
+        "  * Warm Subpage Load Completed in: {:.1} ms (success: {})",
+        t_warm, ok_warm
+    );
+    println!(
+        "  * NEW Sockets opened during transition: {} (vs {} on cold)",
+        new_conns, conns_after_cold
+    );
     println!("  * Total Active Sockets now: {}", conns_after_warm);
-    println!("  * Additional Transferred: Upload {:.1} KB, Download {:.1} KB",
-        (up_warm - up_cold) as f64 / 1024.0, (down_warm - down_cold) as f64 / 1024.0);
+    println!(
+        "  * Additional Transferred: Upload {:.1} KB, Download {:.1} KB",
+        (up_warm - up_cold) as f64 / 1024.0,
+        (down_warm - down_cold) as f64 / 1024.0
+    );
 
     // -------------------------------------------------------------------------
     // Phase 3: Immediate Reload (within HTTP Keep-Alive window, 2 seconds)
@@ -231,7 +270,10 @@ fn main() {
     let (t_p3, ok_p3) = run_chromium_nav(edge_path, &browser_dir, engine.mixed_port, subpage_site);
     let (conns_p3, _, _, _) = fetch_mihomo_connections(&engine);
     let p3_new = conns_p3.saturating_sub(prev_conns_p3);
-    println!("  * In-Window Reload Completed in: {:.1} ms (success: {})", t_p3, ok_p3);
+    println!(
+        "  * In-Window Reload Completed in: {:.1} ms (success: {})",
+        t_p3, ok_p3
+    );
     println!("  * NEW Sockets opened: {}", p3_new);
 
     // -------------------------------------------------------------------------
@@ -245,7 +287,10 @@ fn main() {
     let (t_p4, ok_p4) = run_chromium_nav(edge_path, &browser_dir, engine.mixed_port, subpage_site);
     let (conns_p4, _, _, _) = fetch_mihomo_connections(&engine);
     let p4_new = conns_p4.saturating_sub(prev_conns_p4);
-    println!("  * Post-Timeout Reload Completed in: {:.1} ms (success: {})", t_p4, ok_p4);
+    println!(
+        "  * Post-Timeout Reload Completed in: {:.1} ms (success: {})",
+        t_p4, ok_p4
+    );
     println!("  * NEW Sockets opened: {}", p4_new);
 
     // Cleanup
@@ -255,17 +300,43 @@ fn main() {
     // Comparative Table
     println!("\n=========================================================================================");
     println!("SUMMARY: REAL CHROMIUM SOCKET REUSE & MULTIPLEXING");
-    println!("=========================================================================================");
-    println!("{:<36} {:>14} {:>16} {:>18}", "User Browsing Action", "Load Time", "New Sockets", "Multiplexed Reuse");
-    println!("-----------------------------------------------------------------------------------------");
-    println!("{:<36} {:>12.1}ms {:>16} {:>18}", "1. Cold First Visit", t_cold, conns_after_cold, "None (0%)");
-    println!("{:<36} {:>12.1}ms {:>16} {:>18}", "2. Warm Subpage Navigation", t_warm, new_conns, "Reused HTTP/2");
-    println!("{:<36} {:>12.1}ms {:>16} {:>18}", "3. Reload within Keep-Alive (2s)", t_p3, p3_new, "Warm Keep-Alive");
-    println!("{:<36} {:>12.1}ms {:>16} {:>18}", "4. Reload after Idle Timeout (15s)", t_p4, p4_new, "Partial Reconnect");
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
+    println!(
+        "{:<36} {:>14} {:>16} {:>18}",
+        "User Browsing Action", "Load Time", "New Sockets", "Multiplexed Reuse"
+    );
+    println!(
+        "-----------------------------------------------------------------------------------------"
+    );
+    println!(
+        "{:<36} {:>12.1}ms {:>16} {:>18}",
+        "1. Cold First Visit", t_cold, conns_after_cold, "None (0%)"
+    );
+    println!(
+        "{:<36} {:>12.1}ms {:>16} {:>18}",
+        "2. Warm Subpage Navigation", t_warm, new_conns, "Reused HTTP/2"
+    );
+    println!(
+        "{:<36} {:>12.1}ms {:>16} {:>18}",
+        "3. Reload within Keep-Alive (2s)", t_p3, p3_new, "Warm Keep-Alive"
+    );
+    println!(
+        "{:<36} {:>12.1}ms {:>16} {:>18}",
+        "4. Reload after Idle Timeout (15s)", t_p4, p4_new, "Partial Reconnect"
+    );
+    println!(
+        "========================================================================================="
+    );
     println!("FINDINGS:");
-    println!("1. Modern Chromium establishes 1 primary HTTP/2 TLS connection per origin and multiplexes");
+    println!(
+        "1. Modern Chromium establishes 1 primary HTTP/2 TLS connection per origin and multiplexes"
+    );
     println!("   multiple sub-resources (HTML, CSS, JS, images) over that SINGLE tunnel.");
     println!("2. On internal subpage navigation, 0 new sockets are opened for the origin if HTTP/2 is alive.");
-    println!("3. Connection reuse saves ~{}ms on page rendering time.", (t_cold - t_warm).max(0.0) as u64);
+    println!(
+        "3. Connection reuse saves ~{}ms on page rendering time.",
+        (t_cold - t_warm).max(0.0) as u64
+    );
 }

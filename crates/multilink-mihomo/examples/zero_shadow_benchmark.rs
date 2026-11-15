@@ -38,9 +38,9 @@ impl Rng {
 pub struct NetworkEventState {
     pub phase: usize,
     pub node_a_contextual_block: bool, // Node A blocked on github.com
-    pub node_b_total_outage: bool,       // Node B 100% down
-    pub node_c_jitter_spike: bool,       // Node C latency jumps to 350ms
-    pub local_network_down: bool,        // Wi-Fi down: all fail
+    pub node_b_total_outage: bool,     // Node B 100% down
+    pub node_c_jitter_spike: bool,     // Node C latency jumps to 350ms
+    pub local_network_down: bool,      // Wi-Fi down: all fail
 }
 
 impl NetworkEventState {
@@ -223,12 +223,16 @@ impl RunStats {
 }
 
 fn main() {
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
     println!("EVERTY MULTILINK vs ZERO SHADOW MODE BENCHMARK");
     println!("Comparing: 1) Native Smart Mode  2) ZERO Multidim  3) ZERO Dual Health");
     println!("30 Independent Evaluation Seeds | 3,000 Tasks per Seed (90,000 total connections)");
     println!("Events: P1(Normal) -> P2(ContextBlock) -> P3(TotalOutage) -> P4(JitterSpike) -> P5(LocalDrop) -> P6(Recovery)");
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
 
     let domains = [
         "api.github.com",
@@ -271,7 +275,8 @@ fn main() {
 
             // 1. Mihomo Smart Mode Choice
             let t0 = Instant::now();
-            let mihomo_choice = black_box(smart_mode_select(&nodes, domain, &recent_url_test_fails));
+            let mihomo_choice =
+                black_box(smart_mode_select(&nodes, domain, &recent_url_test_fails));
             let smart_nanos = t0.elapsed().as_nanos();
 
             // 2. ZERO Recommendations
@@ -291,9 +296,20 @@ fn main() {
                 node_map.insert(&n.name, n);
             }
 
-            let (m_lat, m_ok) = simulate_connection(node_map[&mihomo_choice.as_str()], domain, &env, &mut rng);
-            let (raw_lat, raw_ok) = simulate_connection(node_map[rec_raw.recommended_server.as_str()], domain, &env, &mut rng);
-            let (dual_lat, dual_ok) = simulate_connection(node_map[rec_dual.recommended_server.as_str()], domain, &env, &mut rng);
+            let (m_lat, m_ok) =
+                simulate_connection(node_map[&mihomo_choice.as_str()], domain, &env, &mut rng);
+            let (raw_lat, raw_ok) = simulate_connection(
+                node_map[rec_raw.recommended_server.as_str()],
+                domain,
+                &env,
+                &mut rng,
+            );
+            let (dual_lat, dual_ok) = simulate_connection(
+                node_map[rec_dual.recommended_server.as_str()],
+                domain,
+                &env,
+                &mut rng,
+            );
 
             smart_stats.record(m_ok, m_lat, smart_nanos);
             zero_raw_stats.record(raw_ok, raw_lat, raw_nanos);
@@ -353,9 +369,13 @@ fn main() {
 
     println!("\n=========================================================================================");
     println!("FINAL COMPARATIVE RESULTS (30 SEEDS, 90,000 PAIRED CONNECTIONS)");
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
     println!("Strategy                 Mean RTT   p50 RTT   p95 RTT   Success%   Reconnections  Latency(ns)");
-    println!("-----------------------------------------------------------------------------------------");
+    println!(
+        "-----------------------------------------------------------------------------------------"
+    );
     println!(
         "{:<24} {:>7.1}ms {:>7}ms {:>7}ms {:>9.2}% {:>14} {:>11}",
         "Current Smart Mode",
@@ -386,12 +406,32 @@ fn main() {
         zero_dual_stats.reconnections,
         zero_dual_stats.decision_nanos / zero_dual_stats.total as u128
     );
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
 
     println!("\nDIVERGENCE & VERIFICATION ANALYSIS (ZERO Dual Health vs Native Smart Mode):");
     println!("- Total Decisions: {}", zero_dual_stats.total);
-    println!("- Agreement with Smart Mode: {} ({:.1}%)", zero_dual_stats.agreements, 100.0 * zero_dual_stats.agreements as f64 / zero_dual_stats.total as f64);
-    println!("- Divergence from Smart Mode: {} ({:.1}%)", zero_dual_stats.divergences, 100.0 * zero_dual_stats.divergences as f64 / zero_dual_stats.total as f64);
-    println!("- In Divergences, ZERO proved better: {} times ({:.1}%)", zero_dual_stats.divergence_zero_better, 100.0 * zero_dual_stats.divergence_zero_better as f64 / zero_dual_stats.divergences.max(1) as f64);
-    println!("- In Divergences, Smart Mode proved better: {} times ({:.1}%)", zero_dual_stats.divergence_mihomo_better, 100.0 * zero_dual_stats.divergence_mihomo_better as f64 / zero_dual_stats.divergences.max(1) as f64);
+    println!(
+        "- Agreement with Smart Mode: {} ({:.1}%)",
+        zero_dual_stats.agreements,
+        100.0 * zero_dual_stats.agreements as f64 / zero_dual_stats.total as f64
+    );
+    println!(
+        "- Divergence from Smart Mode: {} ({:.1}%)",
+        zero_dual_stats.divergences,
+        100.0 * zero_dual_stats.divergences as f64 / zero_dual_stats.total as f64
+    );
+    println!(
+        "- In Divergences, ZERO proved better: {} times ({:.1}%)",
+        zero_dual_stats.divergence_zero_better,
+        100.0 * zero_dual_stats.divergence_zero_better as f64
+            / zero_dual_stats.divergences.max(1) as f64
+    );
+    println!(
+        "- In Divergences, Smart Mode proved better: {} times ({:.1}%)",
+        zero_dual_stats.divergence_mihomo_better,
+        100.0 * zero_dual_stats.divergence_mihomo_better as f64
+            / zero_dual_stats.divergences.max(1) as f64
+    );
 }

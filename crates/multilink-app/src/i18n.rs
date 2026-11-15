@@ -140,6 +140,9 @@ mod tests {
     use super::*;
     #[test]
     fn locales_and_templates_work() {
+        assert_eq!(resolve("system", "ru-RU"), Language::Ru);
+        assert_eq!(resolve("system", "ru_RU.UTF-8"), Language::Ru);
+        assert_eq!(resolve("en", "ru-RU"), Language::En);
         assert_eq!(resolve("system", "de-DE"), Language::De);
         assert_eq!(resolve("system", "fr-FR"), Language::En);
         assert_eq!(

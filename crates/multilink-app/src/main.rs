@@ -4,6 +4,8 @@ mod help;
 mod i18n;
 mod icons;
 mod lan_sync;
+#[cfg(target_os = "macos")]
+mod macos;
 mod scrolling;
 mod ui;
 #[cfg(windows)]
@@ -23,6 +25,18 @@ fn tray_pixels(logo: &[u8], state: u8) -> Vec<u8> {
         }
     }
     pixels
+}
+#[cfg(any(windows, target_os = "macos"))]
+fn status_icon(logo: &[u8], state: u8) -> Result<tray_icon::Icon, tray_icon::BadIcon> {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = logo;
+        macos::status_icon(state != 0)
+    }
+    #[cfg(windows)]
+    {
+        tray_icon::Icon::from_rgba(tray_pixels(logo, state), 64, 64)
+    }
 }
 use everty_ui::*;
 use multilink_core::{ImportReport, Settings};
@@ -104,12 +118,17 @@ struct Connection {
 impl Connection {
     fn start(settings: &Settings) -> Result<Self, String> {
         if settings.tun
+            && !cfg!(target_os = "macos")
             && !multilink_platform::is_elevated()
                 .map_err(|e| format!("Не удалось проверить права Windows: {e}"))?
         {
             return Err("Для TUN полностью закройте приложение через трей и запустите его от имени администратора".into());
         }
         let engine = Engine::start(settings)?;
+        #[cfg(target_os = "macos")]
+        if !engine.verify_proxy_exit() {
+            return Err("Серверы не прошли проверку доступа в интернет. Проверьте срок подписки, доступность серверов и параметры соединения".into());
+        }
         let proxy = if settings.system_proxy {
             Some(
                 multilink_platform::SystemProxyGuard::enable(multilink_mihomo::PORT)
@@ -196,7 +215,10 @@ fn worker(rx: mpsc::Receiver<Command>, tx: UiUpdates) {
                 };
                 let _ = tx.send(update);
             }
-            Ok(Command::Quit) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Ok(Command::Quit) | Err(mpsc::RecvTimeoutError::Disconnected) => {
+                multilink_platform::prevent_sleep(false);
+                break;
+            }
             Ok(Command::Connect(mut settings)) => {
                 if let Some(access) = settings
                     .access
@@ -383,7 +405,9 @@ fn worker(rx: mpsc::Receiver<Command>, tx: UiUpdates) {
                         let restore = c.stop();
                         connection = None;
                         let message = match restore {
-                            Ok(()) if automatic => format!("{error} · системный прокси восстановлен"),
+                            Ok(()) if automatic => {
+                                format!("{error} · системный прокси восстановлен")
+                            }
                             Ok(()) => error,
                             Err(e) => format!("{error}. {e}; восстановление повторит watchdog"),
                         };
@@ -424,6 +448,8 @@ enum Action {
     Close,
     Submit,
     Paste,
+    CopyProxy,
+    ChooseApplication,
     Policy,
     Toggle(usize),
     EnableAllServers,
@@ -564,27 +590,39 @@ struct App {
     imported_routing: Option<multilink_core::RoutingConfig>,
     selecting_target: bool,
     lan_sync_session: Option<lan_sync::LanSyncSession>,
-    lan_sync_rx: Option<mpsc::Receiver<String>>,
+    lan_sync_rx: Option<mpsc::Receiver<lan_sync::IncomingConfig>>,
+    lan_import_reply: Option<mpsc::Sender<Result<lan_sync::ImportReceipt, String>>>,
+    lan_import_metadata: Option<lan_sync::TransferMetadata>,
     target_page: usize,
     scroll_bar: Option<scrolling::ScrollBar>,
     scroll_drag: Option<f64>,
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     tray_labels: Vec<(tray_icon::menu::MenuItem, &'static str)>,
     logo: Arc<[u8]>,
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     tray: Option<tray_icon::TrayIcon>,
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     tray_visual: std::cell::Cell<u8>,
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     tray_connect: Option<tray_icon::menu::MenuItem>,
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     tray_rule: Option<tray_icon::menu::MenuItem>,
+    #[cfg(target_os = "macos")]
+    native_menu: Option<tray_icon::menu::Menu>,
+    #[cfg(target_os = "macos")]
+    macos_active: bool,
     pin_unlocked: bool,
     pin_target_page: Option<Page>,
     initial_autoconnect_checked: bool,
     update_available: Option<String>,
     update_url: Option<String>,
     checking_update: bool,
+}
+fn is_antigravity_key(key: &str) -> bool {
+    matches!(
+        key,
+        "PROCESS-NAME,antigravity.exe" | "PROCESS-NAME,Antigravity"
+    )
 }
 const SUBSCRIPTION_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 const SUBSCRIPTION_RETRY: Duration = Duration::from_secs(15 * 60);
@@ -625,15 +663,42 @@ impl App {
 
     fn poll_lan_sync(&mut self) {
         if let Some(rx) = &self.lan_sync_rx {
-            if let Ok(payload) = rx.try_recv() {
+            if let Ok(request) = rx.try_recv() {
+                if self.busy || self.connected {
+                    let _ = request.reply.send(Err(
+                        "Отключите MultiLink и дождитесь завершения текущей операции".into(),
+                    ));
+                    return;
+                }
+                self.busy = true;
+                self.lan_import_reply = Some(request.reply);
+                self.lan_import_metadata = Some(request.metadata);
+                self.modal = None;
+                if self.tx.send(Command::Import(request.config, None)).is_err() {
+                    self.busy = false;
+                    self.finish_lan_import(Err("Обработчик импорта недоступен".into()));
+                }
+                self.notify("Получена конфигурация по сети. Выполняется импорт...");
+                self.redraw();
+            }
+        }
+    }
+
+    fn finish_lan_import(&mut self, result: Result<lan_sync::ImportReceipt, String>) {
+        self.lan_import_metadata = None;
+        if let Some(reply) = self.lan_import_reply.take() {
+            let success = result.is_ok();
+            let _ = reply.send(result);
+            if success {
                 if let Some(session) = self.lan_sync_session.take() {
                     session.stop();
                 }
                 self.lan_sync_rx = None;
-                self.modal = None;
-                let _ = self.tx.send(Command::Import(payload, None));
-                self.notify("Получена конфигурация по сети. Выполняется импорт...");
-                self.redraw();
+            } else if let Some(session) = &self.lan_sync_session {
+                self.modal = Some(Modal::LanSync {
+                    url: session.url.clone(),
+                    pin: session.pin.clone(),
+                });
             }
         }
     }
@@ -671,14 +736,15 @@ impl App {
                         .iter()
                         .filter(|node| node.subscription_ids.contains(&id))
                         .map(|node| (&node.name, &node.proxy)));
-                    for warning in report.skipped {
-                        self.logs.push_front(warning);
+                    let warning = report.warnings.first().cloned();
+                    for entry in report.skipped.into_iter().chain(report.warnings) {
+                        self.logs.push_front(entry);
                     }
                     self.save();
-                    Ok(changed)
+                    Ok((changed, warning))
                 });
                 let interval = match result {
-                    Ok(changed) => {
+                    Ok((changed, warning)) => {
                         self.subscription_errors.remove(&id);
                         self.subscription_changes_pending |= self.connected && changed;
                         if changed {
@@ -689,6 +755,9 @@ impl App {
                         } else {
                             "Список серверов подписки обновлён"
                         });
+                        if let Some(warning) = warning {
+                            self.notify(warning);
+                        }
                         SUBSCRIPTION_INTERVAL
                     }
                     Err(error) => {
@@ -728,8 +797,23 @@ impl App {
             channel: updates,
             wake,
         };
+        #[cfg(not(test))]
         let worker_updates = updates.clone();
+        #[cfg(not(test))]
         let worker = std::thread::spawn(move || worker(commands, worker_updates));
+        // UI unit tests must not persist fixtures into the user's credential store
+        // or start networking jobs in the background.
+        #[cfg(test)]
+        let worker = std::thread::spawn(move || {
+            for command in commands {
+                if matches!(command, Command::Quit) {
+                    break;
+                }
+            }
+        });
+        #[cfg(test)]
+        let loaded: Result<Settings, String> = Ok(Settings::default());
+        #[cfg(not(test))]
         let loaded = multilink_platform::load()
             .map_err(|_| "Не удалось открыть защищённые настройки".to_owned())
             .and_then(|data| match data {
@@ -738,20 +822,28 @@ impl App {
                 None => Ok(Settings::default()),
             });
         let (settings, notice) = match loaded {
-            Ok(mut s) => match multilink_core::normalize_direct_rules(&s.rules) {
-                Ok(rules) => {
-                    s.rules = rules;
-                    multilink_core::initialize_ru_routes(&mut s);
-                    multilink_core::retain_rule_groups(&mut s.rule_groups, &s.rules);
-                    let notice = if s.nodes.is_empty() {
-                        "Введите ключ или добавьте свою подписку"
-                    } else {
-                        "Готово к подключению"
-                    };
-                    (s, notice.into())
+            Ok(mut s) => {
+                #[cfg(target_os = "macos")]
+                if !s.macos_network_migrated {
+                    s.tun = true;
+                    s.system_proxy = false;
+                    s.macos_network_migrated = true;
                 }
-                Err(e) => (s, e),
-            },
+                match multilink_core::normalize_direct_rules(&s.rules) {
+                    Ok(rules) => {
+                        s.rules = rules;
+                        multilink_core::initialize_ru_routes(&mut s);
+                        multilink_core::retain_rule_groups(&mut s.rule_groups, &s.rules);
+                        let notice = if s.nodes.is_empty() {
+                            "Введите ключ или добавьте свою подписку"
+                        } else {
+                            "Готово к подключению"
+                        };
+                        (s, notice.into())
+                    }
+                    Err(e) => (s, e),
+                }
+            }
             Err(e) => (Settings::default(), e),
         };
         let mut renderer = Rgba8Renderer::new();
@@ -829,10 +921,12 @@ impl App {
             selecting_target: false,
             lan_sync_session: None,
             lan_sync_rx: None,
+            lan_import_reply: None,
+            lan_import_metadata: None,
             target_page: 0,
             scroll_bar: None,
             scroll_drag: None,
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "macos"))]
             tray_labels: Vec::new(),
             logo: image::load_from_memory(include_bytes!("../../../logo.png"))
                 .expect("embedded logo")
@@ -840,14 +934,18 @@ impl App {
                 .to_rgba8()
                 .into_raw()
                 .into(),
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "macos"))]
             tray: None,
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "macos"))]
             tray_visual: std::cell::Cell::new(255),
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "macos"))]
             tray_connect: None,
-            #[cfg(windows)]
+            #[cfg(any(windows, target_os = "macos"))]
             tray_rule: None,
+            #[cfg(target_os = "macos")]
+            native_menu: None,
+            #[cfg(target_os = "macos")]
+            macos_active: false,
             pin_unlocked: false,
             pin_target_page: None,
             initial_autoconnect_checked: false,
@@ -855,11 +953,14 @@ impl App {
             update_url: None,
             checking_update: false,
         };
-        let check_updates = app.updates.clone();
-        std::thread::spawn(move || {
-            let res = multilink_mihomo::check_github_release(env!("CARGO_PKG_VERSION"), false);
-            let _ = check_updates.send(Update::UpdateCheckResult(res));
-        });
+        #[cfg(not(test))]
+        {
+            let check_updates = app.updates.clone();
+            std::thread::spawn(move || {
+                let res = multilink_mihomo::check_github_release(env!("CARGO_PKG_VERSION"), false);
+                let _ = check_updates.send(Update::UpdateCheckResult(res));
+            });
+        }
         app
     }
     fn pin_locked(&self) -> bool {
@@ -966,11 +1067,11 @@ impl App {
                 Update::Connected(system_proxy) => {
                     self.subscription_changes_pending = false;
                     self.connected = true;
-                    #[cfg(windows)]
+                    #[cfg(any(windows, target_os = "macos"))]
                     if let Some(item) = &self.tray_connect {
                         item.set_text("Отключиться");
                     }
-                    #[cfg(windows)]
+                    #[cfg(any(windows, target_os = "macos"))]
                     if let Some(tray) = &self.tray {
                         let _ = tray.set_tooltip(Some("Everty MultiLink · подключено"));
                     }
@@ -978,11 +1079,11 @@ impl App {
                     self.busy = false;
                     self.started = Some(Instant::now());
                     self.notify(if self.settings.tun && system_proxy {
-                        "Подключено · TUN и системный прокси Windows включены"
+                        "Подключено · TUN и системный прокси включены"
                     } else if self.settings.tun {
                         "Подключено · TUN-адаптер активен"
                     } else if system_proxy {
-                        "Подключено · системный прокси Windows включён"
+                        "Подключено · системный прокси включён"
                     } else {
                         "Подключено · локальный HTTP / SOCKS5 127.0.0.1:17890"
                     });
@@ -992,11 +1093,11 @@ impl App {
                     self.save();
                     let automatic = self.system_proxy_active;
                     self.connected = false;
-                    #[cfg(windows)]
+                    #[cfg(any(windows, target_os = "macos"))]
                     if let Some(item) = &self.tray_connect {
                         item.set_text("Подключиться");
                     }
-                    #[cfg(windows)]
+                    #[cfg(any(windows, target_os = "macos"))]
                     if let Some(tray) = &self.tray {
                         let _ = tray.set_tooltip(Some("Everty MultiLink · отключено"));
                     }
@@ -1020,11 +1121,11 @@ impl App {
                 Update::Error(error) => {
                     self.busy = false;
                     self.connected = false;
-                    #[cfg(windows)]
+                    #[cfg(any(windows, target_os = "macos"))]
                     if let Some(item) = &self.tray_connect {
                         item.set_text("Подключиться");
                     }
-                    #[cfg(windows)]
+                    #[cfg(any(windows, target_os = "macos"))]
                     if let Some(tray) = &self.tray {
                         let _ = tray.set_tooltip(Some("Everty MultiLink · отключено"));
                     }
@@ -1036,6 +1137,7 @@ impl App {
                 Update::Notice(message) => self.notify(message),
                 Update::OperationError(message) => {
                     self.busy = false;
+                    self.finish_lan_import(Err(message.clone()));
                     self.notify(message);
                 }
                 Update::RoutingApplied(rules, policy, change) => {
@@ -1063,7 +1165,22 @@ impl App {
                     self.notify(error);
                 }
                 Update::Imported(report, url, source) => {
+                    let metadata = self.lan_import_metadata.take();
+                    let disabled: std::collections::HashSet<String> = report
+                        .nodes
+                        .iter()
+                        .filter(|node| {
+                            metadata.as_ref().is_some_and(|meta| {
+                                meta.disabled_names.contains(&node.name)
+                                    || node.subscription_signature().is_some_and(|signature| {
+                                        meta.disabled_signatures.contains(&signature)
+                                    })
+                            })
+                        })
+                        .filter_map(multilink_core::Node::subscription_signature)
+                        .collect();
                     let count = report.nodes.len();
+                    let from_subscription = url.is_some();
                     if let Some(url) = url {
                         match multilink_core::update_subscription(
                             &mut self.settings,
@@ -1072,6 +1189,27 @@ impl App {
                             report.nodes,
                         ) {
                             Ok(id) => {
+                                if let Some(meta) = &metadata {
+                                    if let Some(subscription) = self
+                                        .settings
+                                        .subscriptions
+                                        .iter_mut()
+                                        .find(|sub| sub.id == id)
+                                    {
+                                        if let Some(name) =
+                                            meta.name.as_deref().map(str::trim).filter(|name| {
+                                                !name.is_empty()
+                                                    && name.chars().count() <= 128
+                                                    && !name.chars().any(char::is_control)
+                                            })
+                                        {
+                                            subscription.name = name.into();
+                                        }
+                                        if meta.expires > 0 {
+                                            subscription.expires_at = Some(meta.expires);
+                                        }
+                                    }
+                                }
                                 if self.refreshing_subscription == Some(id) {
                                     self.refreshing_subscription = None;
                                     self.pending_subscription = None;
@@ -1082,6 +1220,7 @@ impl App {
                             }
                             Err(error) => {
                                 self.busy = false;
+                                self.finish_lan_import(Err(error.clone()));
                                 self.notify(error);
                                 continue;
                             }
@@ -1089,25 +1228,43 @@ impl App {
                     } else {
                         multilink_core::merge_nodes(&mut self.settings.nodes, report.nodes);
                     }
+                    for node in &mut self.settings.nodes {
+                        if node
+                            .subscription_signature()
+                            .is_some_and(|signature| disabled.contains(&signature))
+                        {
+                            node.enabled = false;
+                        }
+                    }
                     self.settings.imports += 1;
                     self.busy = false;
                     self.modal = None;
                     self.input_rect = None;
                     self.input_view = ui::InputView::default();
                     self.edit.clear();
-                    self.page = if self.settings.subscriptions.is_empty() {
-                        Page::Servers
-                    } else {
+                    self.page = if from_subscription {
                         Page::Subscriptions
+                    } else {
+                        Page::Servers
                     };
+                    self.offset = 0;
                     self.save();
-                    for warning in &report.skipped {
+                    self.finish_lan_import(Ok(lan_sync::ImportReceipt {
+                        count,
+                        warnings: report.warnings.clone(),
+                    }));
+                    for warning in report.skipped.iter().chain(&report.warnings) {
                         self.logs.push_front(warning.clone());
                     }
-                    self.notify(format!(
-                        "Проверено серверов: {count} · несовместимых: {} · подробности в журнале",
-                        report.skipped.len()
-                    ));
+                    if report.warnings.is_empty() {
+                        self.notify(format!(
+                            "Импортировано серверов: {count} · всего в списке: {} · несовместимых: {}",
+                            self.settings.nodes.len(), report.skipped.len()
+                        ));
+                    } else {
+                        self.notify(format!("Импортировано серверов: {count} · без фрагментации FM: {} · несовместимых: {}",
+                            report.warnings.len(), report.skipped.len()));
+                    }
                 }
                 Update::Metrics(metrics, delays) => {
                     self.history.push_back((metrics.down_rate, metrics.up_rate));
@@ -1225,6 +1382,27 @@ impl App {
             }
         }
         match action {
+            Action::ChooseApplication =>
+            {
+                #[cfg(target_os = "macos")]
+                match multilink_platform::application_file_dialog() {
+                    Ok(Some(path)) => {
+                        self.edit.set_text(&path.to_string_lossy());
+                        self.reset_caret();
+                        self.redraw();
+                    }
+                    Ok(None) => {}
+                    Err(error) => self.notify(error.to_string()),
+                }
+            }
+            Action::CopyProxy => {
+                match arboard::Clipboard::new()
+                    .and_then(|mut clipboard| clipboard.set_text("127.0.0.1:17890"))
+                {
+                    Ok(()) => self.notify("Адрес прокси скопирован: 127.0.0.1:17890"),
+                    Err(_) => self.notify("Не удалось скопировать адрес прокси"),
+                }
+            }
             Action::HelpSection(section) => {
                 self.offset = section.min(help::COUNT - 1);
                 self.redraw();
@@ -1239,6 +1417,10 @@ impl App {
                 }
                 self.modal = None;
                 self.save();
+                #[cfg(target_os = "macos")]
+                if self.native_menu.is_some() {
+                    self.native_menu = macos::install_menu(self).ok();
+                }
                 self.sync_tray();
                 self.redraw();
             }
@@ -1298,7 +1480,8 @@ impl App {
                         self.modal = Some(Modal::ShareQr {
                             title: format!("Поделиться: {}", node.name),
                             content: uri,
-                            caption: "Отсканируйте камерой смартфона или скопируйте VLESS-ссылку:".into(),
+                            caption: "Отсканируйте камерой смартфона или скопируйте VLESS-ссылку:"
+                                .into(),
                         });
                         self.redraw();
                     } else {
@@ -1311,7 +1494,9 @@ impl App {
                     self.modal = Some(Modal::ShareQr {
                         title: format!("Подписка: {}", sub.name),
                         content: sub.url.clone(),
-                        caption: "Отсканируйте камерой смартфона или скопируйте ссылку на подписку:".into(),
+                        caption:
+                            "Отсканируйте камерой смартфона или скопируйте ссылку на подписку:"
+                                .into(),
                     });
                     self.redraw();
                 }
@@ -1465,7 +1650,9 @@ impl App {
                         });
                         let result = serde_json::to_string_pretty(&backup)
                             .map_err(|e| e.to_string())
-                            .and_then(|text| std::fs::write(&path, text).map_err(|e| e.to_string()));
+                            .and_then(|text| {
+                                std::fs::write(&path, text).map_err(|e| e.to_string())
+                            });
                         self.notify(match result {
                             Ok(()) => "Все настройки успешно экспортированы".into(),
                             Err(e) => format!("Ошибка экспорта: {e}"),
@@ -1498,13 +1685,16 @@ impl App {
                             });
                         match result {
                             Ok(mut loaded) => {
-                                if let Ok(rules) = multilink_core::normalize_direct_rules(&loaded.rules) {
+                                if let Ok(rules) =
+                                    multilink_core::normalize_direct_rules(&loaded.rules)
+                                {
                                     loaded.rules = rules;
                                 }
                                 self.settings = loaded;
                                 self.save();
                                 if self.connected {
-                                    let _ = self.tx.send(Command::ApplySettings(self.settings.clone()));
+                                    let _ =
+                                        self.tx.send(Command::ApplySettings(self.settings.clone()));
                                 }
                                 self.notify("Все настройки успешно импортированы");
                             }
@@ -1580,10 +1770,17 @@ impl App {
                 self.edit_scroll = 0.0;
                 self.rule_target = 0;
                 if action == Action::AddAntigravity {
-                    self.edit.set_text("Antigravity.exe");
-                    if let Some(index) = self.settings.rules.iter().position(|rule| {
-                        multilink_core::rule_key(rule) == "PROCESS-NAME,antigravity.exe"
-                    }) {
+                    self.edit.set_text(if cfg!(target_os = "macos") {
+                        "Antigravity"
+                    } else {
+                        "Antigravity.exe"
+                    });
+                    if let Some(index) = self
+                        .settings
+                        .rules
+                        .iter()
+                        .position(|rule| is_antigravity_key(&multilink_core::rule_key(rule)))
+                    {
                         self.action(Action::EditRule(index));
                         if !self.antigravity_template {
                             self.other_rule_values = "googleapis.com".into();
@@ -1672,7 +1869,9 @@ impl App {
                         self.antigravity_template = false;
                         self.modal = Some(match *kind {
                             "RULE-SET" => Modal::RuRule,
-                            "PROCESS-NAME" => Modal::ProcessRule,
+                            "PROCESS-NAME" | "PROCESS-PATH" | "PROCESS-PATH-WILDCARD" => {
+                                Modal::ProcessRule
+                            }
                             _ => Modal::Rule,
                         });
                         self.edit.set_text(if *kind == "RULE-SET" {
@@ -1686,14 +1885,14 @@ impl App {
                             let mut addresses = Vec::new();
                             for key in &keys {
                                 if let Some((kind, value)) = key.split_once(',') {
-                                    if kind == "PROCESS-NAME" {
+                                    if kind.starts_with("PROCESS-") {
                                         processes.push(value);
                                     } else {
                                         addresses.push(value);
                                     }
                                 }
                             }
-                            let process = *kind == "PROCESS-NAME";
+                            let process = kind.starts_with("PROCESS-");
                             let (current, other) = if process {
                                 (processes.join(", "), addresses.join(", "))
                             } else {
@@ -1704,9 +1903,7 @@ impl App {
                             self.antigravity_template =
                                 self.settings.rule_groups.iter().any(|group| {
                                     group == &keys
-                                        && group
-                                            .iter()
-                                            .any(|key| key == "PROCESS-NAME,antigravity.exe")
+                                        && group.iter().any(|key| is_antigravity_key(key))
                                 });
                         }
                         self.edit_scroll = 0.0;
@@ -1941,7 +2138,7 @@ impl App {
             }
             Action::Submit => {}
             Action::Connect if !self.busy => {
-                if !self.connected && self.settings.tun {
+                if !self.connected && self.settings.tun && !cfg!(target_os = "macos") {
                     match multilink_platform::is_elevated() {
                         Ok(false) => {
                             self.request_elevated_restart(true);
@@ -1972,7 +2169,7 @@ impl App {
             }
             Action::ToggleTun if !self.connected && !self.busy => {
                 self.settings.tun = !self.settings.tun;
-                if self.settings.tun {
+                if self.settings.tun && !cfg!(target_os = "macos") {
                     match multilink_platform::is_elevated() {
                         Ok(false) => {
                             if !self.request_elevated_restart(false) {
@@ -2004,9 +2201,12 @@ impl App {
             Action::Toggle(i) if !self.busy => {
                 if let Some(node) = self.settings.nodes.get(i) {
                     if self.connected && node.enabled {
-                        let enabled_count = self.settings.nodes.iter().filter(|n| n.enabled).count();
+                        let enabled_count =
+                            self.settings.nodes.iter().filter(|n| n.enabled).count();
                         if enabled_count <= 1 {
-                            self.notify("Нельзя отключить единственный активный сервер во время работы VPN");
+                            self.notify(
+                                "Нельзя отключить единственный активный сервер во время работы VPN",
+                            );
                             return;
                         }
                     }
@@ -2129,7 +2329,7 @@ impl App {
         self.sync_tray();
     }
     fn sync_tray(&self) {
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         {
             if let Some(item) = &self.tray_connect {
                 item.set_enabled(!self.busy);
@@ -2162,9 +2362,7 @@ impl App {
                     1
                 };
                 if self.tray_visual.get() != state {
-                    if let Ok(icon) =
-                        tray_icon::Icon::from_rgba(tray_pixels(&self.logo, state), 64, 64)
-                    {
+                    if let Ok(icon) = status_icon(&self.logo, state) {
                         if tray.set_icon(Some(icon)).is_ok() {
                             self.tray_visual.set(state);
                         }
@@ -2270,9 +2468,12 @@ impl App {
         if self.antigravity_template
             && !rules
                 .iter()
-                .any(|r| multilink_core::rule_key(r) == "PROCESS-NAME,antigravity.exe")
+                .any(|r| is_antigravity_key(&multilink_core::rule_key(r)))
         {
-            return Err("Оставьте Antigravity.exe в шаблоне или создайте обычное правило".into());
+            return Err(
+                "Оставьте основной процесс Antigravity в шаблоне или создайте обычное правило"
+                    .into(),
+            );
         }
         if !addresses.is_empty() {
             rules.extend(multilink_core::rules_from_input(addresses, false, target)?);
@@ -2428,6 +2629,8 @@ impl App {
         if let Some(w) = &self.window {
             let (width, height) = if compact {
                 (390.0, 500.0)
+            } else if cfg!(target_os = "macos") {
+                (1120.0, 780.0)
             } else {
                 (1280.0, 850.0)
             };
@@ -2531,6 +2734,10 @@ impl App {
 }
 impl Drop for App {
     fn drop(&mut self) {
+        self.finish_lan_import(Err("Приложение закрыто до завершения импорта".into()));
+        if let Some(session) = &self.lan_sync_session {
+            session.stop();
+        }
         let _ = self.tx.send(Command::Quit);
         if let Some(worker) = self.worker.take() {
             let _ = worker.join();
@@ -2544,6 +2751,8 @@ impl ApplicationHandler for App {
         }
         let (width, height, min_width, min_height) = if self.compact {
             (390.0, 500.0, 360.0, 460.0)
+        } else if cfg!(target_os = "macos") {
+            (1120.0, 780.0, 1040.0, 740.0)
         } else {
             (1280.0, 850.0, 1040.0, 740.0)
         };
@@ -2564,11 +2773,16 @@ impl ApplicationHandler for App {
             softbuffer::Surface::new(&context, window.clone()).expect("Create display surface"),
         );
         self.window = Some(window);
-        #[cfg(windows)]
+        #[cfg(target_os = "macos")]
+        {
+            self.native_menu = macos::install_menu(self).ok();
+            self.macos_active = macos::is_active();
+        }
+        #[cfg(any(windows, target_os = "macos"))]
         {
             use tray_icon::{
                 menu::{Menu, MenuItem, PredefinedMenuItem},
-                Icon, TrayIconBuilder,
+                TrayIconBuilder,
             };
             let menu = Menu::new();
             let open = MenuItem::with_id("open", "Открыть MultiLink", true, None);
@@ -2577,10 +2791,21 @@ impl ApplicationHandler for App {
             let connect = MenuItem::with_id("connect", "Подключиться", true, None);
             let rule = MenuItem::with_id("rule", "Правило из буфера…", true, None);
             let exit = MenuItem::with_id("exit", "Выход", true, None);
+            let settings = MenuItem::with_id("settings", "Настройки…", true, None);
+            let copy_proxy =
+                MenuItem::with_id("copy-proxy", "Скопировать адрес прокси", true, None);
             let separator = PredefinedMenuItem::separator();
             if menu
                 .append_items(&[
-                    &connect, &separator, &open, &compact, &advanced, &rule, &exit,
+                    &connect,
+                    &separator,
+                    &open,
+                    &compact,
+                    &advanced,
+                    &settings,
+                    &copy_proxy,
+                    &rule,
+                    &exit,
                 ])
                 .is_ok()
             {
@@ -2598,22 +2823,25 @@ impl ApplicationHandler for App {
                         );
                     }
                 }
-                if let Ok(icon) = Icon::from_rgba(tray_pixels(&self.logo, 0), 64, 64) {
+                if let Ok(icon) = status_icon(&self.logo, 0) {
                     if let Ok(tray) = TrayIconBuilder::new()
                         .with_menu(Box::new(menu))
-                        .with_menu_on_left_click(false)
+                        .with_menu_on_left_click(cfg!(target_os = "macos"))
+                        .with_icon_as_template(cfg!(target_os = "macos"))
                         .with_tooltip("Everty MultiLink · отключено")
                         .with_icon(icon)
                         .build()
                     {
                         self.tray = Some(tray);
-                        self.tray_labels = vec![
+                        self.tray_labels.extend([
                             (open, "Открыть MultiLink"),
+                            (settings, "Настройки…"),
+                            (copy_proxy, "Скопировать адрес прокси"),
                             (compact, "Компактное окно"),
                             (advanced, "Расширенное окно"),
                             (rule.clone(), "Правило из буфера…"),
                             (exit, "Выход"),
-                        ];
+                        ]);
                         self.tray_connect = Some(connect);
                         self.tray_rule = Some(rule);
                         self.sync_tray();
@@ -2630,6 +2858,8 @@ impl ApplicationHandler for App {
                 if let Some(w) = &self.window {
                     w.set_visible(false);
                 }
+                #[cfg(target_os = "macos")]
+                macos::hide();
             }
             if self.smoke_tray {
                 assert!(self.tray.is_some(), "system tray was not created");
@@ -2675,6 +2905,17 @@ impl ApplicationHandler for App {
         }
     }
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        #[cfg(target_os = "macos")]
+        {
+            let active = macos::is_active();
+            if active && !self.macos_active {
+                if let Some(w) = &self.window {
+                    w.set_visible(true);
+                    w.focus_window();
+                }
+            }
+            self.macos_active = active;
+        }
         self.poll_lan_sync();
         self.poll_subscriptions();
         if self.connected
@@ -2694,7 +2935,7 @@ impl ApplicationHandler for App {
             event_loop.exit();
             return;
         }
-        #[cfg(windows)]
+        #[cfg(any(windows, target_os = "macos"))]
         {
             while let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
                 match event.id.as_ref() {
@@ -2704,6 +2945,28 @@ impl ApplicationHandler for App {
                             w.set_visible(true);
                             w.focus_window();
                         }
+                    }
+                    "settings" | "about" => {
+                        self.set_compact(false);
+                        self.action(Action::Nav(if event.id.as_ref() == "settings" {
+                            Page::Settings
+                        } else {
+                            Page::About
+                        }));
+                        if let Some(w) = &self.window {
+                            w.set_visible(true);
+                            w.focus_window();
+                        }
+                    }
+                    "hide-window" => {
+                        if let Some(w) = &self.window {
+                            w.set_visible(false);
+                        }
+                        #[cfg(target_os = "macos")]
+                        macos::hide();
+                    }
+                    "copy-proxy" => {
+                        self.action(Action::CopyProxy);
                     }
                     "connect" => self.action(Action::Connect),
                     "advanced" | "compact" => {
@@ -2730,6 +2993,7 @@ impl ApplicationHandler for App {
                     _ => {}
                 }
             }
+            #[cfg(windows)]
             while let Ok(event) = tray_icon::TrayIconEvent::receiver().try_recv() {
                 if let tray_icon::TrayIconEvent::DoubleClick {
                     button: tray_icon::MouseButton::Left,
@@ -2803,11 +3067,13 @@ impl ApplicationHandler for App {
     ) {
         match event {
             WindowEvent::CloseRequested => {
-                #[cfg(windows)]
+                #[cfg(any(windows, target_os = "macos"))]
                 if self.tray.is_some() {
                     if let Some(w) = &self.window {
                         w.set_visible(false);
                     }
+                    #[cfg(target_os = "macos")]
+                    macos::hide();
                     return;
                 }
                 event_loop.exit();
@@ -2981,7 +3247,9 @@ impl ApplicationHandler for App {
                     self.field_focused = true;
                     return;
                 }
-                if self.modifiers.control_key() {
+                if self.modifiers.control_key()
+                    || (cfg!(target_os = "macos") && self.modifiers.super_key())
+                {
                     match &event.logical_key {
                         WKey::Character(c) if c.eq_ignore_ascii_case("v") => {
                             self.action(Action::Paste);
@@ -3021,7 +3289,11 @@ impl ApplicationHandler for App {
                     let handled = self
                         .edit
                         .handle_key(key, everty_ui::platform::winit::modifiers(self.modifiers));
-                    if !handled && !self.modifiers.control_key() && !self.modifiers.alt_key() {
+                    if !handled
+                        && !self.modifiers.control_key()
+                        && !self.modifiers.alt_key()
+                        && !self.modifiers.super_key()
+                    {
                         if let Some(text) = event.text {
                             self.edit.insert(&text);
                         }
@@ -3037,6 +3309,50 @@ fn main() {
         return;
     }
     let args: Vec<_> = std::env::args().collect();
+    #[cfg(target_os = "macos")]
+    if args.iter().any(|arg| arg == "--smoke-macos-child-watchdog") {
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .expect("start disposable child");
+        let watchdog =
+            multilink_platform::ChildJob::attach(&child).expect("attach local core watchdog");
+        drop(watchdog);
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            if let Some(status) = child.try_wait().expect("poll disposable child") {
+                assert!(
+                    !status.success(),
+                    "watchdog must terminate child after parent channel closes"
+                );
+                println!("macOS local core crash watchdog: passed");
+                return;
+            }
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                panic!("local core watchdog did not terminate child");
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    if args.iter().any(|arg| arg == "--smoke-macos-network") {
+        let result = multilink_platform::load()
+            .map_err(|e| e.to_string())
+            .and_then(|bytes| {
+                bytes.ok_or_else(|| "Нет сохранённой подписки для сетевой проверки".to_owned())
+            })
+            .and_then(|bytes| serde_json::from_slice::<Settings>(&bytes).map_err(|e| e.to_string()))
+            .and_then(multilink_mihomo::check_macos_network);
+        match result {
+            Ok(()) => println!("macOS network integration: passed"),
+            Err(error) => {
+                eprintln!("macOS network integration: {error}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     #[cfg(windows)]
     if args.iter().any(|arg| arg == "--smoke-watchdog") {
         let before = multilink_platform::proxy::ProxySettings::read().expect("read original proxy");
@@ -3448,11 +3764,19 @@ fn set_autostart_at(
         }
     }
 }
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+fn autostart_enabled() -> std::io::Result<bool> {
+    macos::autostart_enabled()
+}
+#[cfg(target_os = "macos")]
+fn set_autostart(enabled: bool) -> std::io::Result<()> {
+    macos::set_autostart(enabled)
+}
+#[cfg(all(not(windows), not(target_os = "macos")))]
 fn autostart_enabled() -> std::io::Result<bool> {
     Ok(false)
 }
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(target_os = "macos")))]
 fn set_autostart(_: bool) -> std::io::Result<()> {
     Err(std::io::Error::other(
         "Автозапуск поддерживается только в Windows",
@@ -3497,6 +3821,114 @@ mod autostart_tests {
 mod routing_workflow_tests {
     use super::*;
     use multilink_core::Policy;
+    #[test]
+    fn wifi_import_preserves_android_name_expiry_and_disabled_endpoints() {
+        let mut app = App::new(None);
+        let (commands, _received) = mpsc::channel();
+        app.tx = commands;
+        let (updates, receiver) = mpsc::channel();
+        app.rx = receiver;
+        let (incoming, requests) = mpsc::channel();
+        let (reply, result) = mpsc::channel();
+        app.lan_sync_rx = Some(requests);
+        let expires = multilink_core::unix_now() + 86400;
+        let payload =
+            "vless://00000000-0000-4000-8000-000000000001@new.invalid:443?fm=fragment#New";
+        let report = multilink_core::import_subscription(payload).unwrap();
+        let signature = report.nodes[0].subscription_signature().unwrap();
+        incoming
+            .send(lan_sync::IncomingConfig {
+                config: "https://provider.invalid/sub".into(),
+                reply,
+                metadata: lan_sync::TransferMetadata {
+                    name: Some("С телефона".into()),
+                    expires,
+                    disabled_signatures: vec![signature],
+                    disabled_names: Vec::new(),
+                },
+            })
+            .unwrap();
+        app.poll_lan_sync();
+        updates
+            .send(Update::Imported(
+                report,
+                Some("https://provider.invalid/sub".into()),
+                None,
+            ))
+            .unwrap();
+        app.drain();
+        assert_eq!(result.try_recv().unwrap().unwrap().count, 1);
+        assert_eq!(app.settings.subscriptions[0].name, "С телефона");
+        assert_eq!(app.settings.subscriptions[0].expires_at, Some(expires));
+        assert!(!app.settings.nodes[0].enabled);
+        assert_eq!(app.page, Page::Subscriptions);
+        let id = app.settings.subscriptions[0].id;
+        multilink_core::update_subscription(
+            &mut app.settings,
+            Some(id),
+            "https://provider.invalid/sub",
+            multilink_core::import_subscription(payload).unwrap().nodes,
+        )
+        .unwrap();
+        assert!(!app.settings.nodes[0].enabled);
+        assert_eq!(app.settings.subscriptions[0].expires_at, Some(expires));
+        app.paint(1040.0, 740.0);
+    }
+    #[test]
+    fn wifi_import_acknowledges_committed_nodes_and_opens_servers() {
+        let mut app = App::new(None);
+        let (commands, received) = mpsc::channel();
+        app.tx = commands;
+        let (updates, receiver) = mpsc::channel();
+        app.rx = receiver;
+        let previous = multilink_core::parse_subscription(
+            "vless://00000000-0000-4000-8000-000000000001@old.invalid:443#Old",
+        )
+        .unwrap();
+        multilink_core::update_subscription(
+            &mut app.settings,
+            None,
+            "https://old.invalid/sub",
+            previous,
+        )
+        .unwrap();
+        app.page = Page::Subscriptions;
+        app.offset = 20;
+        let payload =
+            "vless://00000000-0000-4000-8000-000000000001@new.invalid:443?fm=fragment#New";
+        let (incoming, requests) = mpsc::channel();
+        let (reply, result) = mpsc::channel();
+        app.lan_sync_rx = Some(requests);
+        incoming
+            .send(lan_sync::IncomingConfig {
+                config: payload.into(),
+                reply,
+                metadata: Default::default(),
+            })
+            .unwrap();
+        app.poll_lan_sync();
+        assert!(app.busy);
+        assert!(result.try_recv().is_err());
+        assert!(matches!(received.try_recv(), Ok(Command::Import(_, None))));
+        updates
+            .send(Update::Imported(
+                multilink_core::import_subscription(payload).unwrap(),
+                None,
+                None,
+            ))
+            .unwrap();
+        app.drain();
+        let receipt = result.try_recv().unwrap().unwrap();
+        assert_eq!(receipt.count, 1);
+        assert_eq!(receipt.warnings.len(), 1);
+        assert!(receipt.warnings[0].contains("без фрагментации FM"));
+        assert!(app.notice.contains("без фрагментации FM: 1"));
+        assert!(!app.busy);
+        assert_eq!(app.settings.nodes.len(), 2);
+        assert_eq!(app.page, Page::Servers);
+        assert_eq!(app.offset, 0);
+        assert!(app.lan_sync_rx.is_none());
+    }
     #[test]
     fn elevated_restart_preserves_requested_window_mode_and_autoconnect() {
         let mut app = App::new(None);
@@ -3799,7 +4231,7 @@ mod routing_workflow_tests {
         assert!(app
             .hits
             .iter()
-            .any(|(_, a)| *a == Action::ToggleSystemProxy));
+            .any(|(_, action)| *action == Action::ToggleSystemProxy));
         app.action(Action::ToggleSystemProxy);
         assert!(app.settings.tun && app.settings.system_proxy);
         assert!(matches!(received.try_recv(), Ok(Command::Save(_))));
@@ -3961,7 +4393,12 @@ mod routing_workflow_tests {
         let (_, receiver) = mpsc::channel();
         app.rx = receiver;
         app.settings = Settings::default();
-        let mut n1 = multilink_core::parse_subscription("vless://00000000-0000-4000-8000-000000000001@example.invalid:443#DE-01").unwrap().pop().unwrap();
+        let mut n1 = multilink_core::parse_subscription(
+            "vless://00000000-0000-4000-8000-000000000001@example.invalid:443#DE-01",
+        )
+        .unwrap()
+        .pop()
+        .unwrap();
         n1.name = "Server 1".into();
         n1.enabled = true;
         let mut n2 = n1.clone();
@@ -3979,13 +4416,18 @@ mod routing_workflow_tests {
         // Attempting to toggle off the last remaining server should be refused
         app.action(Action::Toggle(1));
         assert!(app.settings.nodes[1].enabled);
-        assert!(app.notice.contains("Нельзя отключить единственный активный сервер"));
+        assert!(app
+            .notice
+            .contains("Нельзя отключить единственный активный сервер"));
 
         // Check disabled hints on Settings page
         app.compact = false;
         app.page = Page::Settings;
         app.paint(1040.0, 740.0);
-        assert!(app.disabled_hits.iter().any(|(_, hint)| hint.contains("Отключите VPN")));
+        assert!(app
+            .disabled_hits
+            .iter()
+            .any(|(_, hint)| hint.contains("Отключите VPN")));
     }
     #[test]
     fn pin_lock_protection_and_unlock_flow() {

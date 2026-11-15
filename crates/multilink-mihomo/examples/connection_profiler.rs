@@ -98,8 +98,13 @@ fn start_isolated_mihomo(
     }
 
     let mut cmd = Command::new(binary);
-    cmd.arg("-d").arg(&dir).arg("-f").arg(&config_path)
-        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    cmd.arg("-d")
+        .arg(&dir)
+        .arg("-f")
+        .arg(&config_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -144,14 +149,21 @@ fn start_isolated_mihomo(
 }
 
 /// Perform HTTP CONNECT via the local Mihomo proxy to target and measure VLESS tunnel setup time.
-fn measure_vless_tunnel_handshake(proxy_port: u16, target_host: &str, target_port: u16) -> Option<u64> {
+fn measure_vless_tunnel_handshake(
+    proxy_port: u16,
+    target_host: &str,
+    target_port: u16,
+) -> Option<u64> {
     let t0 = Instant::now();
     let mut stream = TcpStream::connect_timeout(
         &format!("127.0.0.1:{proxy_port}").parse().unwrap(),
         Duration::from_secs(3),
-    ).ok()?;
+    )
+    .ok()?;
 
-    let connect_req = format!("CONNECT {target_host}:{target_port} HTTP/1.1\r\nHost: {target_host}:{target_port}\r\n\r\n");
+    let connect_req = format!(
+        "CONNECT {target_host}:{target_port} HTTP/1.1\r\nHost: {target_host}:{target_port}\r\n\r\n"
+    );
     stream.write_all(connect_req.as_bytes()).ok()?;
 
     let mut buf = [0u8; 512];
@@ -194,8 +206,7 @@ fn profile_http_path(
     };
 
     // 3. Build a persistent Client with connection pooling
-    let mut builder = Client::builder()
-        .timeout(Duration::from_secs(5));
+    let mut builder = Client::builder().timeout(Duration::from_secs(5));
 
     if let Some(port) = proxy_port {
         builder = builder.proxy(reqwest::Proxy::all(format!("http://127.0.0.1:{port}")).unwrap());
@@ -237,13 +248,17 @@ fn run_quic_udp_analysis(engine: &TestEngine) {
     println!("\n=========================================================================================");
     println!("STAGE 4: QUIC / HTTP/3 / UDP 443 BEHAVIORAL ANALYSIS");
     println!("Investigating: Direct UDP, Proxy UDP, Blackhole / Throttle, and REJECT rule speed");
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
 
     // Direct UDP 443 to Google Public DNS / gstatic IP
     let target_ip = "8.8.8.8:443";
     println!("1. Direct physical UDP 443 socket test to {}", target_ip);
     let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
-    socket.set_read_timeout(Some(Duration::from_millis(1500))).unwrap();
+    socket
+        .set_read_timeout(Some(Duration::from_millis(1500)))
+        .unwrap();
     socket.connect(target_ip).unwrap();
 
     let dummy_quic_header = [0x80 | 0x40 | 0x01, 0x00, 0x00, 0x00, 0x01]; // QUIC initial short header
@@ -251,8 +266,16 @@ fn run_quic_udp_analysis(engine: &TestEngine) {
     let _ = socket.send(&dummy_quic_header);
     let mut buf = [0u8; 128];
     match socket.recv(&mut buf) {
-        Ok(n) => println!("   -> Response received in {:?} ({} bytes)", t0.elapsed(), n),
-        Err(e) => println!("   -> Socket result: {:?} in {:?} (ISP / OS behavior on UDP 443)", e.kind(), t0.elapsed()),
+        Ok(n) => println!(
+            "   -> Response received in {:?} ({} bytes)",
+            t0.elapsed(),
+            n
+        ),
+        Err(e) => println!(
+            "   -> Socket result: {:?} in {:?} (ISP / OS behavior on UDP 443)",
+            e.kind(),
+            t0.elapsed()
+        ),
     }
 
     // 2. Test REJECT rule vs Drop in Mihomo
@@ -264,21 +287,30 @@ fn run_quic_udp_analysis(engine: &TestEngine) {
     let t_rej_start = Instant::now();
     // Test sending to a blocked port through Mihomo mixed port
     let mut tcp = TcpStream::connect(format!("127.0.0.1:{}", engine.mixed_port)).unwrap();
-    tcp.set_read_timeout(Some(Duration::from_millis(1000))).unwrap();
+    tcp.set_read_timeout(Some(Duration::from_millis(1000)))
+        .unwrap();
     let req = "CONNECT reject.invalid:443 HTTP/1.1\r\nHost: reject.invalid:443\r\n\r\n";
     let _ = tcp.write_all(req.as_bytes());
     let mut resp_buf = [0u8; 256];
     let n = tcp.read(&mut resp_buf).unwrap_or(0);
     let resp = String::from_utf8_lossy(&resp_buf[..n]);
-    println!("   -> Mihomo response for rejected destination: {} in {:?}", resp.lines().next().unwrap_or("none"), t_rej_start.elapsed());
+    println!(
+        "   -> Mihomo response for rejected destination: {} in {:?}",
+        resp.lines().next().unwrap_or("none"),
+        t_rej_start.elapsed()
+    );
 }
 
 fn run_tcp_concurrent_and_tfo_ab_test(nodes: &[Node]) {
     println!("\n=========================================================================================");
     println!("STAGE 5: TCP CONCURRENT & TCP FAST OPEN (TFO) A/B EXPERIMENT");
-    println!("Testing 4 Configurations over 15 Alternating Rounds (eliminating network drift bias)");
+    println!(
+        "Testing 4 Configurations over 15 Alternating Rounds (eliminating network drift bias)"
+    );
     println!("Configs: [A: Baseline (false/false)] | [B: tcp-concurrent: true] | [C: tfo: true] | [D: Both]");
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
 
     struct ConfigTest {
         label: &'static str,
@@ -288,10 +320,30 @@ fn run_tcp_concurrent_and_tfo_ab_test(nodes: &[Node]) {
     }
 
     let mut configs = vec![
-        ConfigTest { label: "A: Baseline (Default)", tcp_concurrent: false, tfo: false, results: Vec::new() },
-        ConfigTest { label: "B: tcp-concurrent: true", tcp_concurrent: true, tfo: false, results: Vec::new() },
-        ConfigTest { label: "C: tfo: true (FastOpen)", tcp_concurrent: false, tfo: true, results: Vec::new() },
-        ConfigTest { label: "D: Both (Concurrent+TFO)", tcp_concurrent: true, tfo: true, results: Vec::new() },
+        ConfigTest {
+            label: "A: Baseline (Default)",
+            tcp_concurrent: false,
+            tfo: false,
+            results: Vec::new(),
+        },
+        ConfigTest {
+            label: "B: tcp-concurrent: true",
+            tcp_concurrent: true,
+            tfo: false,
+            results: Vec::new(),
+        },
+        ConfigTest {
+            label: "C: tfo: true (FastOpen)",
+            tcp_concurrent: false,
+            tfo: true,
+            results: Vec::new(),
+        },
+        ConfigTest {
+            label: "D: Both (Concurrent+TFO)",
+            tcp_concurrent: true,
+            tfo: true,
+            results: Vec::new(),
+        },
     ];
 
     let test_domain = "www.gstatic.com";
@@ -314,13 +366,18 @@ fn run_tcp_concurrent_and_tfo_ab_test(nodes: &[Node]) {
         for r in 0..rounds {
             // Cold connection: new client instance every time to force full handshake
             let client = Client::builder()
-                .proxy(reqwest::Proxy::all(format!("http://127.0.0.1:{}", engine.mixed_port)).unwrap())
+                .proxy(
+                    reqwest::Proxy::all(format!("http://127.0.0.1:{}", engine.mixed_port)).unwrap(),
+                )
                 .timeout(Duration::from_secs(4))
                 .build()
                 .unwrap();
 
             let t0 = Instant::now();
-            if let Ok(resp) = client.get(format!("https://{test_domain}{test_path}")).send() {
+            if let Ok(resp) = client
+                .get(format!("https://{test_domain}{test_path}"))
+                .send()
+            {
                 if resp.status().is_success() {
                     cfg.results.push(t0.elapsed().as_millis() as f64);
                 }
@@ -335,8 +392,13 @@ fn run_tcp_concurrent_and_tfo_ab_test(nodes: &[Node]) {
     }
 
     println!("\n-----------------------------------------------------------------------------------------");
-    println!("{:<28} {:>10} {:>10} {:>10} {:>10} {:>12}", "Configuration", "Mean Cold", "p50 Cold", "p95 Cold", "Min Cold", "Samples");
-    println!("-----------------------------------------------------------------------------------------");
+    println!(
+        "{:<28} {:>10} {:>10} {:>10} {:>10} {:>12}",
+        "Configuration", "Mean Cold", "p50 Cold", "p95 Cold", "Min Cold", "Samples"
+    );
+    println!(
+        "-----------------------------------------------------------------------------------------"
+    );
 
     for cfg in &mut configs {
         if cfg.results.is_empty() {
@@ -352,16 +414,27 @@ fn run_tcp_concurrent_and_tfo_ab_test(nodes: &[Node]) {
 
         println!(
             "{:<28} {:>9.1}ms {:>9.1}ms {:>9.1}ms {:>9.1}ms {:>12}",
-            cfg.label, mean, p50, p95, min, cfg.results.len()
+            cfg.label,
+            mean,
+            p50,
+            p95,
+            min,
+            cfg.results.len()
         );
     }
 }
 
 fn main() {
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
     println!("MULTILINK NETWORK BOTTLENECK PROFILER 2.0");
-    println!("Empirical Profiling: Connection Breakdown, QUIC/UDP 443 & TCP Acceleration Mechanisms");
-    println!("=========================================================================================");
+    println!(
+        "Empirical Profiling: Connection Breakdown, QUIC/UDP 443 & TCP Acceleration Mechanisms"
+    );
+    println!(
+        "========================================================================================="
+    );
 
     // Load production nodes
     let settings: Settings = match multilink_platform::load() {
@@ -385,7 +458,11 @@ fn main() {
 
     let fastest_nodes: Vec<Node> = active_nodes
         .into_iter()
-        .filter(|n| n.name.contains("NL #1") || n.name.contains("Germany #2") || n.name.contains("Sweden #4"))
+        .filter(|n| {
+            n.name.contains("NL #1")
+                || n.name.contains("Germany #2")
+                || n.name.contains("Sweden #4")
+        })
         .take(3)
         .collect();
 
@@ -396,7 +473,8 @@ fn main() {
 
     // Start baseline Mihomo instance for Stages 1 & 4
     println!("\nSpawning isolated baseline Mihomo core...");
-    let engine = start_isolated_mihomo(&fastest_nodes, false, false, &[]).expect("Failed to start Mihomo");
+    let engine =
+        start_isolated_mihomo(&fastest_nodes, false, false, &[]).expect("Failed to start Mihomo");
     println!("Mihomo active on mixed-port: {}", engine.mixed_port);
 
     // =========================================================================
@@ -405,7 +483,9 @@ fn main() {
     println!("\n=========================================================================================");
     println!("STAGE 1: FULL CONNECTION PATH PROFILING & DECOMPOSITION");
     println!("Decomposing DNS, VLESS Tunnel Setup, End-to-End TLS, TTFB and Warm Connection Reuse");
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
 
     let targets = [
         ("www.gstatic.com", "/generate_204", "Google 204 Probe"),
@@ -414,14 +494,23 @@ fn main() {
     ];
 
     println!("\n--- Part A: Direct Connection Baseline (No Proxy) ---");
-    println!("{:<24} {:>9} {:>11} {:>11} {:>11} {:>11} {:>14}", "Target", "DNS", "Cold Total", "Cold TTFB", "Warm TTFB", "Warm Total", "Conn Overhead");
+    println!(
+        "{:<24} {:>9} {:>11} {:>11} {:>11} {:>11} {:>14}",
+        "Target", "DNS", "Cold Total", "Cold TTFB", "Warm TTFB", "Warm Total", "Conn Overhead"
+    );
     println!("--------------------------------------------------------------------------------------------------");
 
     for &(domain, path, desc) in &targets {
         if let Some(m) = profile_http_path(None, domain, path) {
             println!(
                 "{:<24} {:>8.1}ms {:>10.1}ms {:>10.1}ms {:>10.1}ms {:>10.1}ms {:>13.1}ms",
-                desc, m.dns_ms, m.cold_total_ms, m.cold_ttfb_ms, m.warm_ttfb_ms, m.warm_total_ms, m.connection_overhead_ms
+                desc,
+                m.dns_ms,
+                m.cold_total_ms,
+                m.cold_ttfb_ms,
+                m.warm_ttfb_ms,
+                m.warm_total_ms,
+                m.connection_overhead_ms
             );
         } else {
             println!("{:<24}   FAILED (blocked/offline)", desc);
@@ -429,14 +518,29 @@ fn main() {
     }
 
     println!("\n--- Part B: VPN Connection (via MultiLink Mihomo VLESS) ---");
-    println!("{:<24} {:>13} {:>11} {:>11} {:>11} {:>11} {:>14}", "Target", "VLESS Tunnel", "Cold Total", "Cold TTFB", "Warm TTFB", "Warm Total", "Conn Overhead");
+    println!(
+        "{:<24} {:>13} {:>11} {:>11} {:>11} {:>11} {:>14}",
+        "Target",
+        "VLESS Tunnel",
+        "Cold Total",
+        "Cold TTFB",
+        "Warm TTFB",
+        "Warm Total",
+        "Conn Overhead"
+    );
     println!("--------------------------------------------------------------------------------------------------");
 
     for &(domain, path, desc) in &targets {
         if let Some(m) = profile_http_path(Some(engine.mixed_port), domain, path) {
             println!(
                 "{:<24} {:>12.1}ms {:>10.1}ms {:>10.1}ms {:>10.1}ms {:>10.1}ms {:>13.1}ms",
-                desc, m.vless_tunnel_ms, m.cold_total_ms, m.cold_ttfb_ms, m.warm_ttfb_ms, m.warm_total_ms, m.connection_overhead_ms
+                desc,
+                m.vless_tunnel_ms,
+                m.cold_total_ms,
+                m.cold_ttfb_ms,
+                m.warm_ttfb_ms,
+                m.warm_total_ms,
+                m.connection_overhead_ms
             );
         } else {
             println!("{:<24}   FAILED (proxy connect error)", desc);
@@ -457,5 +561,7 @@ fn main() {
 
     println!("\n=========================================================================================");
     println!("PROFILING COMPLETED. ALL DATA IS EMPIRICALLY MEASURED ON PHYSICAL ENDPOINTS.");
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
 }

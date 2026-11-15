@@ -65,7 +65,7 @@ object TvLanClient {
                         val ok = respJson.optBoolean("ok", false)
                         val count = respJson.optInt("count", 0)
                         if (ok) {
-                            callback(true, "Успешно отправлено на устройство ($count узлов)")
+                            callback(true, respJson.optString("message", "Успешно отправлено на устройство ($count узлов)"))
                         } else {
                             callback(false, respJson.optString("error", "Ошибка передачи"))
                         }

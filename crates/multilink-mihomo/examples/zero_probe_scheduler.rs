@@ -9,7 +9,9 @@
 
 pub struct Rng(u64);
 impl Rng {
-    pub fn new(seed: u64) -> Self { Self(seed.max(1)) }
+    pub fn new(seed: u64) -> Self {
+        Self(seed.max(1))
+    }
     pub fn next(&mut self) -> u64 {
         self.0 ^= self.0 << 13;
         self.0 ^= self.0 >> 7;
@@ -38,10 +40,26 @@ impl SimulationWorld {
         Self {
             step: 0,
             nodes: [
-                GroundTruthNode { base_latency: 45.0, jitter: 8.0, alive: true },  // S0: Fast primary
-                GroundTruthNode { base_latency: 85.0, jitter: 10.0, alive: true }, // S1: Medium
-                GroundTruthNode { base_latency: 125.0, jitter: 12.0, alive: true },// S2: Moderate
-                GroundTruthNode { base_latency: 180.0, jitter: 5.0, alive: true }, // S3: Backup
+                GroundTruthNode {
+                    base_latency: 45.0,
+                    jitter: 8.0,
+                    alive: true,
+                }, // S0: Fast primary
+                GroundTruthNode {
+                    base_latency: 85.0,
+                    jitter: 10.0,
+                    alive: true,
+                }, // S1: Medium
+                GroundTruthNode {
+                    base_latency: 125.0,
+                    jitter: 12.0,
+                    alive: true,
+                }, // S2: Moderate
+                GroundTruthNode {
+                    base_latency: 180.0,
+                    jitter: 5.0,
+                    alive: true,
+                }, // S3: Backup
             ],
         }
     }
@@ -86,12 +104,19 @@ pub struct SchedulerStats {
 
 impl SchedulerStats {
     pub fn mean_rtt(&self) -> f64 {
-        if self.experienced_rtts.is_empty() { 0.0 } else { self.experienced_rtts.iter().sum::<f64>() / self.experienced_rtts.len() as f64 }
+        if self.experienced_rtts.is_empty() {
+            0.0
+        } else {
+            self.experienced_rtts.iter().sum::<f64>() / self.experienced_rtts.len() as f64
+        }
     }
     pub fn p95_rtt(&mut self) -> f64 {
-        if self.experienced_rtts.is_empty() { return 0.0; }
+        if self.experienced_rtts.is_empty() {
+            return 0.0;
+        }
         self.experienced_rtts.sort_by(|a, b| a.total_cmp(b));
-        let idx = ((self.experienced_rtts.len() as f64 * 0.95) as usize).min(self.experienced_rtts.len() - 1);
+        let idx = ((self.experienced_rtts.len() as f64 * 0.95) as usize)
+            .min(self.experienced_rtts.len() - 1);
         self.experienced_rtts[idx]
     }
 }
@@ -116,7 +141,13 @@ impl FixedIntervalScheduler {
         }
     }
 
-    fn step(&mut self, step: usize, world: &SimulationWorld, rng: &mut Rng, stats: &mut SchedulerStats) {
+    fn step(
+        &mut self,
+        step: usize,
+        world: &SimulationWorld,
+        rng: &mut Rng,
+        stats: &mut SchedulerStats,
+    ) {
         // Probe all 4 nodes every 20 steps if budget permits
         if step >= self.last_probe_step + 20 && self.budget >= 4 {
             self.last_probe_step = step;
@@ -137,7 +168,11 @@ impl FixedIntervalScheduler {
             // Update selected
             let best = (0..4)
                 .filter(|&i| self.cached_latencies[i].is_some())
-                .min_by(|&a, &b| self.cached_latencies[a].unwrap().total_cmp(&self.cached_latencies[b].unwrap()));
+                .min_by(|&a, &b| {
+                    self.cached_latencies[a]
+                        .unwrap()
+                        .total_cmp(&self.cached_latencies[b].unwrap())
+                });
 
             if let Some(b) = best {
                 if b != self.current_selected {
@@ -183,7 +218,13 @@ impl HeuristicScheduler {
         }
     }
 
-    fn step(&mut self, step: usize, world: &SimulationWorld, rng: &mut Rng, stats: &mut SchedulerStats) {
+    fn step(
+        &mut self,
+        step: usize,
+        world: &SimulationWorld,
+        rng: &mut Rng,
+        stats: &mut SchedulerStats,
+    ) {
         // Serve user request through current selection
         let mut ok = false;
         let mut rtt_opt = None;
@@ -235,7 +276,11 @@ impl HeuristicScheduler {
         // Selection update
         let best = (0..4)
             .filter(|&i| self.cached_latencies[i].is_some())
-            .min_by(|&a, &b| self.cached_latencies[a].unwrap().total_cmp(&self.cached_latencies[b].unwrap()));
+            .min_by(|&a, &b| {
+                self.cached_latencies[a]
+                    .unwrap()
+                    .total_cmp(&self.cached_latencies[b].unwrap())
+            });
 
         if let Some(b) = best {
             if b != self.current_selected {
@@ -270,7 +315,13 @@ impl ZeroAdaptiveScheduler {
         }
     }
 
-    fn step(&mut self, step: usize, world: &SimulationWorld, rng: &mut Rng, stats: &mut SchedulerStats) {
+    fn step(
+        &mut self,
+        step: usize,
+        world: &SimulationWorld,
+        rng: &mut Rng,
+        stats: &mut SchedulerStats,
+    ) {
         // 1. Serve user request through currently selected node
         stats.total_user_requests += 1;
         let chosen = self.current_selected;
@@ -308,7 +359,8 @@ impl ZeroAdaptiveScheduler {
 
             // If active node is failing, trigger emergency probe to the most promising candidate
             if self.failure_score[self.current_selected] >= 1.0 {
-                let mut candidates: Vec<usize> = (0..4).filter(|&i| i != self.current_selected).collect();
+                let mut candidates: Vec<usize> =
+                    (0..4).filter(|&i| i != self.current_selected).collect();
                 candidates.sort_by(|&a, &b| self.belief_mean[a].total_cmp(&self.belief_mean[b]));
 
                 for &cand in &candidates {
@@ -337,9 +389,11 @@ impl ZeroAdaptiveScheduler {
                     if i != self.current_selected {
                         // Expected value of checking node i:
                         // Upper confidence bound of potential gain: (active_mean - optimistic_i)
-                        let optimistic_rtt = self.belief_mean[i] - 1.2 * self.belief_var[i].sqrt().min(40.0);
+                        let optimistic_rtt =
+                            self.belief_mean[i] - 1.2 * self.belief_var[i].sqrt().min(40.0);
                         let potential_gain = active_mean - optimistic_rtt;
-                        if potential_gain > best_voi && potential_gain > 20.0 { // Must beat switching threshold
+                        if potential_gain > best_voi && potential_gain > 20.0 {
+                            // Must beat switching threshold
                             best_voi = potential_gain;
                             best_target = Some(i);
                         }
@@ -389,12 +443,26 @@ struct OracleScheduler {
 }
 
 impl OracleScheduler {
-    fn new() -> Self { Self { current_selected: 0 } }
-    fn step(&mut self, _step: usize, world: &SimulationWorld, rng: &mut Rng, stats: &mut SchedulerStats) {
+    fn new() -> Self {
+        Self {
+            current_selected: 0,
+        }
+    }
+    fn step(
+        &mut self,
+        _step: usize,
+        world: &SimulationWorld,
+        rng: &mut Rng,
+        stats: &mut SchedulerStats,
+    ) {
         // Oracle picks the truly best alive node without spending any probe budget
         let best = (0..4)
             .filter(|&i| world.nodes[i].alive)
-            .min_by(|&a, &b| world.nodes[a].base_latency.total_cmp(&world.nodes[b].base_latency))
+            .min_by(|&a, &b| {
+                world.nodes[a]
+                    .base_latency
+                    .total_cmp(&world.nodes[b].base_latency)
+            })
             .unwrap_or(3);
 
         if best != self.current_selected {
@@ -410,12 +478,18 @@ impl OracleScheduler {
 }
 
 fn main() {
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
     println!("ZERO ADAPTIVE PROBE SCHEDULER BENCHMARK (STAGE 8)");
     println!("Equal Budget Constraint: B = 200 probes per 1,000 steps");
-    println!("30 Independent Evaluation Seeds | Outage Injection (300..550) & Degradation (700..850)");
+    println!(
+        "30 Independent Evaluation Seeds | Outage Injection (300..550) & Degradation (700..850)"
+    );
     println!("Zero Lookahead / Pure Posterior Belief");
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
 
     let seeds = 30;
     let mut fixed_all: Vec<SchedulerStats> = Vec::new();
@@ -447,14 +521,26 @@ fn main() {
 
             // Measure outage detection and recovery delays for seed 0
             if step == 301 {
-                if fixed.current_selected == 0 { fixed_stats.outage_detection_delay_steps += 1; }
-                if heur.current_selected == 0 { heur_stats.outage_detection_delay_steps += 1; }
-                if zero.current_selected == 0 { zero_stats.outage_detection_delay_steps += 1; }
+                if fixed.current_selected == 0 {
+                    fixed_stats.outage_detection_delay_steps += 1;
+                }
+                if heur.current_selected == 0 {
+                    heur_stats.outage_detection_delay_steps += 1;
+                }
+                if zero.current_selected == 0 {
+                    zero_stats.outage_detection_delay_steps += 1;
+                }
             }
             if step >= 550 && step < 580 {
-                if fixed.current_selected != 0 { fixed_stats.outage_recovery_delay_steps += 1; }
-                if heur.current_selected != 0 { heur_stats.outage_recovery_delay_steps += 1; }
-                if zero.current_selected != 0 { zero_stats.outage_recovery_delay_steps += 1; }
+                if fixed.current_selected != 0 {
+                    fixed_stats.outage_recovery_delay_steps += 1;
+                }
+                if heur.current_selected != 0 {
+                    heur_stats.outage_recovery_delay_steps += 1;
+                }
+                if zero.current_selected != 0 {
+                    zero_stats.outage_recovery_delay_steps += 1;
+                }
             }
         }
 
@@ -466,15 +552,24 @@ fn main() {
 
     println!("\n=========================================================================================");
     println!("COMPARATIVE PROBE SCHEDULING RESULTS (30 SEEDS, BUDGET = 200 PROBES)");
-    println!("=========================================================================================");
-    println!("{:<28} {:>10} {:>10} {:>10} {:>12} {:>12} {:>14}",
-        "Strategy", "Mean RTT", "p95 RTT", "Success%", "Probes Used", "Wasted%", "Route Switches");
-    println!("-----------------------------------------------------------------------------------------");
+    println!(
+        "========================================================================================="
+    );
+    println!(
+        "{:<28} {:>10} {:>10} {:>10} {:>12} {:>12} {:>14}",
+        "Strategy", "Mean RTT", "p95 RTT", "Success%", "Probes Used", "Wasted%", "Route Switches"
+    );
+    println!(
+        "-----------------------------------------------------------------------------------------"
+    );
 
     let summarize = |name: &'static str, mut list: Vec<SchedulerStats>| {
         let n = list.len() as f64;
         let mean_rtt: f64 = list.iter().map(|s| s.mean_rtt()).sum::<f64>() / n;
-        let mut all_rtts: Vec<f64> = list.iter().flat_map(|s| s.experienced_rtts.clone()).collect();
+        let mut all_rtts: Vec<f64> = list
+            .iter()
+            .flat_map(|s| s.experienced_rtts.clone())
+            .collect();
         all_rtts.sort_by(|a, b| a.total_cmp(b));
         let p95 = all_rtts[(all_rtts.len() as f64 * 0.95) as usize];
         let total_req: usize = list.iter().map(|s| s.total_user_requests).sum();
@@ -482,7 +577,11 @@ fn main() {
         let succ_pct = 100.0 * total_succ as f64 / total_req as f64;
         let probes_avg: f64 = list.iter().map(|s| s.probes_spent).sum::<usize>() as f64 / n;
         let wasted_avg: f64 = list.iter().map(|s| s.wasted_probes).sum::<usize>() as f64 / n;
-        let wasted_pct = if probes_avg > 0.0 { 100.0 * wasted_avg / probes_avg } else { 0.0 };
+        let wasted_pct = if probes_avg > 0.0 {
+            100.0 * wasted_avg / probes_avg
+        } else {
+            0.0
+        };
         let switches_avg: f64 = list.iter().map(|s| s.route_switches).sum::<usize>() as f64 / n;
 
         println!(
@@ -496,5 +595,7 @@ fn main() {
     summarize("ZERO Adaptive Scheduler", zero_all);
     summarize("Theoretical Oracle", oracle_all);
 
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
 }

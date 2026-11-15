@@ -43,7 +43,7 @@ fn free_port() -> u16 {
 
 fn start_mihomo_with_group(
     nodes: &[Node],
-    group_type: &str, // "load-balance" or "url-test"
+    group_type: &str,       // "load-balance" or "url-test"
     strategy: Option<&str>, // "consistent-hashing", "round-robin", or None
 ) -> Result<TestEngine, String> {
     let mixed_port = free_port();
@@ -83,8 +83,13 @@ fn start_mihomo_with_group(
 
     let binary = multilink_mihomo::binary();
     let mut cmd = Command::new(binary);
-    cmd.arg("-d").arg(&dir).arg("-f").arg(&config_path)
-        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    cmd.arg("-d")
+        .arg(&dir)
+        .arg("-f")
+        .arg(&config_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -137,10 +142,7 @@ struct MultiPathResults {
     failed_requests: usize,
 }
 
-fn benchmark_engine(
-    strategy_name: &'static str,
-    engine: &TestEngine,
-) -> MultiPathResults {
+fn benchmark_engine(strategy_name: &'static str, engine: &TestEngine) -> MultiPathResults {
     let proxy_url = format!("http://127.0.0.1:{}", engine.mixed_port);
 
     // 1. Parallel Multi-Stream Download: 6 concurrent connections
@@ -157,7 +159,10 @@ fn benchmark_engine(
                     .unwrap();
 
                 // Download small asset from gstatic
-                client.get("https://www.gstatic.com/generate_204").send().is_ok()
+                client
+                    .get("https://www.gstatic.com/generate_204")
+                    .send()
+                    .is_ok()
             })
         })
         .collect();
@@ -213,7 +218,8 @@ fn benchmark_engine(
     let page_load_total_ms = t_page_start.elapsed().as_millis() as f64;
 
     component_latencies.sort_by(|a, b| a.total_cmp(b));
-    let p95_idx = ((component_latencies.len() as f64 * 0.95) as usize).min(component_latencies.len() - 1);
+    let p95_idx =
+        ((component_latencies.len() as f64 * 0.95) as usize).min(component_latencies.len() - 1);
     let page_component_p95_ms = component_latencies[p95_idx];
 
     // 3. Egress IP Stability on same domain: 15 sequential requests to cloudflare trace
@@ -251,11 +257,15 @@ fn benchmark_engine(
 }
 
 fn main() {
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
     println!("MULTIPATH EGRESS & LOAD-BALANCE BENCHMARK");
     println!("Comparing: Single Best Server vs Round-Robin vs Consistent-Hashing");
     println!("Physical Endpoints: NL #1 (10 Gbit), Germany #2, Sweden #4 (10 Gbit)");
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
 
     let settings: Settings = match multilink_platform::load() {
         Ok(Some(bytes)) => serde_json::from_slice(&bytes).unwrap_or_default(),
@@ -268,7 +278,12 @@ fn main() {
     let pool: Vec<Node> = settings
         .nodes
         .into_iter()
-        .filter(|n| (n.name.contains("NL #1") || n.name.contains("Germany #2") || n.name.contains("Sweden #4")) && n.enabled)
+        .filter(|n| {
+            (n.name.contains("NL #1")
+                || n.name.contains("Germany #2")
+                || n.name.contains("Sweden #4"))
+                && n.enabled
+        })
         .take(3)
         .collect();
 
@@ -284,41 +299,68 @@ fn main() {
     let nl_only = vec![pool[0].clone()];
     let eng_single = start_mihomo_with_group(&nl_only, "url-test", None).expect("Failed single");
     let res_single = benchmark_engine("Single Best (NL #1)", &eng_single);
-    println!("  -> Parallel 6-stream: {:.1}ms | Page Load: {:.1}ms | IP Flaps on same domain: {}",
-        res_single.parallel_download_total_ms, res_single.page_load_total_ms, res_single.ip_changes_on_same_domain);
+    println!(
+        "  -> Parallel 6-stream: {:.1}ms | Page Load: {:.1}ms | IP Flaps on same domain: {}",
+        res_single.parallel_download_total_ms,
+        res_single.page_load_total_ms,
+        res_single.ip_changes_on_same_domain
+    );
     drop(eng_single);
     all_results.push(res_single);
 
     // 2. Load Balance: Round-Robin across all 3 nodes
     println!("\nTesting Mode 2: Load-Balance Round-Robin (3 nodes)...");
-    let eng_rr = start_mihomo_with_group(&pool, "load-balance", Some("round-robin")).expect("Failed RR");
+    let eng_rr =
+        start_mihomo_with_group(&pool, "load-balance", Some("round-robin")).expect("Failed RR");
     let res_rr = benchmark_engine("Load Balance Round-Robin", &eng_rr);
-    println!("  -> Parallel 6-stream: {:.1}ms | Page Load: {:.1}ms | IP Flaps on same domain: {}",
-        res_rr.parallel_download_total_ms, res_rr.page_load_total_ms, res_rr.ip_changes_on_same_domain);
+    println!(
+        "  -> Parallel 6-stream: {:.1}ms | Page Load: {:.1}ms | IP Flaps on same domain: {}",
+        res_rr.parallel_download_total_ms,
+        res_rr.page_load_total_ms,
+        res_rr.ip_changes_on_same_domain
+    );
     drop(eng_rr);
     all_results.push(res_rr);
 
     // 3. Load Balance: Consistent-Hashing across all 3 nodes
     println!("\nTesting Mode 3: Load-Balance Consistent-Hashing (3 nodes)...");
-    let eng_ch = start_mihomo_with_group(&pool, "load-balance", Some("consistent-hashing")).expect("Failed CH");
+    let eng_ch = start_mihomo_with_group(&pool, "load-balance", Some("consistent-hashing"))
+        .expect("Failed CH");
     let res_ch = benchmark_engine("Consistent Hashing", &eng_ch);
-    println!("  -> Parallel 6-stream: {:.1}ms | Page Load: {:.1}ms | IP Flaps on same domain: {}",
-        res_ch.parallel_download_total_ms, res_ch.page_load_total_ms, res_ch.ip_changes_on_same_domain);
+    println!(
+        "  -> Parallel 6-stream: {:.1}ms | Page Load: {:.1}ms | IP Flaps on same domain: {}",
+        res_ch.parallel_download_total_ms,
+        res_ch.page_load_total_ms,
+        res_ch.ip_changes_on_same_domain
+    );
     drop(eng_ch);
     all_results.push(res_ch);
 
     // Display Comparative Table
     println!("\n=========================================================================================");
     println!("COMPARATIVE MULTIPATH RESULTS ON PHYSICAL NETWORK");
-    println!("=========================================================================================");
-    println!("{:<28} {:>16} {:>16} {:>14} {:>16}", "Strategy", "6-Parallel Stream", "12-Component Page", "Page p95", "Egress IP Flaps");
-    println!("-----------------------------------------------------------------------------------------");
+    println!(
+        "========================================================================================="
+    );
+    println!(
+        "{:<28} {:>16} {:>16} {:>14} {:>16}",
+        "Strategy", "6-Parallel Stream", "12-Component Page", "Page p95", "Egress IP Flaps"
+    );
+    println!(
+        "-----------------------------------------------------------------------------------------"
+    );
 
     for r in &all_results {
         println!(
             "{:<28} {:>14.1}ms {:>14.1}ms {:>12.1}ms {:>16}",
-            r.strategy_name, r.parallel_download_total_ms, r.page_load_total_ms, r.page_component_p95_ms, r.ip_changes_on_same_domain
+            r.strategy_name,
+            r.parallel_download_total_ms,
+            r.page_load_total_ms,
+            r.page_component_p95_ms,
+            r.ip_changes_on_same_domain
         );
     }
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
 }

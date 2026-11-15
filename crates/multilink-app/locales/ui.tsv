@@ -395,3 +395,33 @@ PIN-код успешно установлен	PIN code successfully set	PIN-Cod
 Защита PIN-кодом отключена	PIN code protection disabled	PIN-Code-Schutz deaktiviert	Protección por PIN desactivada	PIN 码保护已禁用
 Настройки заблокированы PIN-кодом	Settings locked with PIN code	Einstellungen mit PIN-Code gesperrt	Ajustes bloqueados con código PIN	设置已被 PIN 码锁定
 Действие защищено PIN-кодом	Action protected by PIN code	Aktion durch PIN-Code geschützt	Acción protegida por PIN	该操作受 PIN 码保护
+Настройки…	Settings…	Einstellungen…	Ajustes…	设置…
+Службы	Services	Dienste	Servicios	服务
+Скрыть MultiLink	Hide MultiLink	MultiLink ausblenden	Ocultar MultiLink	隐藏 MultiLink
+Скрыть остальные	Hide Others	Andere ausblenden	Ocultar otros	隐藏其他
+Показать все	Show All	Alle einblenden	Mostrar todo	全部显示
+Завершить MultiLink	Quit MultiLink	MultiLink beenden	Salir de MultiLink	退出 MultiLink
+Окно	Window	Fenster	Ventana	窗口
+Закрыть окно	Close Window	Fenster schließen	Cerrar ventana	关闭窗口
+Свернуть	Minimize	Minimieren	Minimizar	最小化
+Скопировать адрес прокси	Copy Proxy Address	Proxy-Adresse kopieren	Copiar dirección del proxy	复制代理地址
+Скопировать	Copy	Kopieren	Copiar	复制
+Недоступен	Unavailable	Nicht verfügbar	No disponible	不可用
+Укажите этот адрес в браузере или сетевых настройках macOS.	Use this address in your browser or macOS network settings.	Diese Adresse im Browser oder in den macOS-Netzwerkeinstellungen eintragen.	Usa esta dirección en tu navegador o en los ajustes de red de macOS.	在浏览器或 macOS 网络设置中使用此地址。
+В этой версии macOS используется режим локального прокси.	This macOS version uses local proxy mode.	Diese macOS-Version verwendet den lokalen Proxy-Modus.	Esta versión para macOS usa el modo de proxy local.	此 macOS 版本使用本地代理模式。
+Запускать при входе в macOS	Launch at Login	Bei der Anmeldung starten	Abrir al iniciar sesión	登录时启动
+Работать в фоне со значком в строке меню.	Run in the background with a menu bar icon.	Im Hintergrund mit einem Symbol in der Menüleiste ausführen.	Ejecutar en segundo plano con un icono en la barra de menús.	在后台运行并显示菜单栏图标。
+Закрытие окна оставляет прокси работать. Выход: ⌘Q.	Closing the window keeps the proxy running. Quit: ⌘Q.	Beim Schließen bleibt der Proxy aktiv. Beenden: ⌘Q.	Cerrar la ventana mantiene el proxy activo. Salir: ⌘Q.	关闭窗口后代理继续运行。退出：⌘Q。
+Адрес прокси скопирован: 127.0.0.1:17890	Proxy address copied: 127.0.0.1:17890	Proxy-Adresse kopiert: 127.0.0.1:17890	Dirección del proxy copiada: 127.0.0.1:17890	已复制代理地址：127.0.0.1:17890
+Не удалось скопировать адрес прокси	Could not copy proxy address	Proxy-Adresse konnte nicht kopiert werden	No se pudo copiar la dirección del proxy	无法复制代理地址
+Импортировано серверов: {count} · всего в списке: {total} · несовместимых: {skipped}	Servers imported: {count} · total: {total} · incompatible: {skipped}	Server importiert: {count} · insgesamt: {total} · inkompatibel: {skipped}	Servidores importados: {count} · total: {total} · incompatibles: {skipped}	已导入服务器：{count} · 总数：{total} · 不兼容：{skipped}
+Узел {index}: импортирован без фрагментации FM	Node {index}: imported without FM fragmentation	Knoten {index}: ohne FM-Fragmentierung importiert	Nodo {index}: importado sin fragmentación FM	节点 {index}：已导入，未应用 FM 分片
+Импортировано серверов: {count} · без фрагментации FM: {warnings} · несовместимых: {skipped}	Servers imported: {count} · without FM fragmentation: {warnings} · incompatible: {skipped}	Server importiert: {count} · ohne FM-Fragmentierung: {warnings} · inkompatibel: {skipped}	Servidores importados: {count} · sin fragmentación FM: {warnings} · incompatibles: {skipped}	已导入服务器：{count} · 未应用 FM 分片：{warnings} · 不兼容：{skipped}
+Выбрать .app…	Choose .app…	.app auswählen…	Elegir .app…	选择 .app…
+Автоматически настраивать прокси браузеров и приложений.	Automatically configure browser and app proxies.	Browser- und App-Proxys automatisch konfigurieren.	Configurar automáticamente el proxy de navegadores y apps.	自动配置浏览器和应用代理。
+Весь трафик Mac, включая DNS. macOS запросит доступ при подключении.	All Mac traffic, including DNS. macOS will request access when connecting.	Gesamter Mac-Verkehr einschließlich DNS. macOS fragt beim Verbinden nach Zugriff.	Todo el tráfico del Mac, incluido DNS. macOS pedirá permiso al conectar.	转发 Mac 的所有流量，包括 DNS。连接时 macOS 会请求授权。
+TUN защищает весь Mac. Системный прокси можно использовать отдельно.	TUN covers the whole Mac. System proxy can be used separately.	TUN erfasst den ganzen Mac. Der Systemproxy kann separat verwendet werden.	TUN cubre todo el Mac. El proxy del sistema puede usarse por separado.	TUN 覆盖整个 Mac，系统代理可单独使用。
+Подключено · TUN и системный прокси включены	Connected · TUN and system proxy enabled	Verbunden · TUN und Systemproxy aktiviert	Conectado · TUN y proxy del sistema activos	已连接 · TUN 和系统代理已启用
+Подключено · системный прокси включён	Connected · system proxy enabled	Verbunden · Systemproxy aktiviert	Conectado · proxy del sistema activo	已连接 · 系统代理已启用
+Срок истёк	Expired	Abgelaufen	Vencida	已到期
+Осталось дней: {days}	Days remaining: {days}	Verbleibende Tage: {days}	Días restantes: {days}	剩余天数：{days}

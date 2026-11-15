@@ -6,6 +6,8 @@ pub struct Subscription {
     pub name: String,
     pub url: String,
     pub updated_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<u64>,
 }
 
 pub fn subscription_url(input: &str) -> Result<String, String> {
@@ -180,6 +182,7 @@ pub fn update_subscription(
             name: subscription_host(&url),
             url,
             updated_at: now,
+            expires_at: None,
         });
     }
     settings.nodes = updated;

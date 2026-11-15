@@ -61,10 +61,7 @@ fn evaluate_mihomo_url_test_selection(
         return "none".to_string();
     }
 
-    let (best_node, best_rtt) = candidates
-        .iter()
-        .min_by_key(|(_, rtt)| *rtt)
-        .unwrap();
+    let (best_node, best_rtt) = candidates.iter().min_by_key(|(_, rtt)| *rtt).unwrap();
 
     if let Some(cur_name) = current_selected {
         if let Some((_, cur_rtt)) = candidates.iter().find(|(n, _)| n.name == cur_name) {
@@ -131,10 +128,14 @@ impl RealLiveStats {
 }
 
 fn main() {
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
     println!("MULTILINK SMART MODE: PHYSICAL LIVE SERVER NETWORK BENCHMARK (MIHOMO CORE)");
     println!("Target: Actual Production VPN Server Endpoints via Mihomo Controller API");
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
 
     // 1. Load actual production nodes from MultiLink encrypted storage
     let settings: Settings = match multilink_platform::load() {
@@ -151,7 +152,10 @@ fn main() {
         .filter(|n| n.enabled && !n.proxy.is_empty())
         .collect();
 
-    println!("Found {} configured nodes in MultiLink.", active_nodes.len());
+    println!(
+        "Found {} configured nodes in MultiLink.",
+        active_nodes.len()
+    );
     if active_nodes.is_empty() {
         eprintln!("No active nodes found in settings.");
         return;
@@ -161,7 +165,13 @@ fn main() {
     // Some fast nodes (NL, EE, SE, FI, DE) and 1-2 distant/higher latency nodes (US, SG, etc.)
     let mut selected_nodes: Vec<Node> = Vec::new();
     let preferred_names = [
-        "NL #1", "Estonia #1", "Sweden #4", "Finland #1", "Germany #2", "USA", "Singapore"
+        "NL #1",
+        "Estonia #1",
+        "Sweden #4",
+        "Finland #1",
+        "Germany #2",
+        "USA",
+        "Singapore",
     ];
 
     for pref in &preferred_names {
@@ -177,7 +187,11 @@ fn main() {
 
     println!("\nTesting live production nodes:");
     for n in &selected_nodes {
-        println!("  - {} (server: {:?})", n.name, n.proxy.get(&serde_yaml::Value::String("server".into())));
+        println!(
+            "  - {} (server: {:?})",
+            n.name,
+            n.proxy.get(&serde_yaml::Value::String("server".into()))
+        );
     }
 
     // 2. Start an isolated Mihomo test instance
@@ -191,7 +205,8 @@ fn main() {
     test_settings.nodes = selected_nodes.clone();
     test_settings.rules = Vec::new();
 
-    let config_yaml = multilink_mihomo::config(&test_settings, secret).expect("Failed to build config");
+    let config_yaml =
+        multilink_mihomo::config(&test_settings, secret).expect("Failed to build config");
     let mut config_val: Value = serde_yaml::from_str(&config_yaml).expect("Failed to parse config");
     config_val["mixed-port"] = json!(mixed_port);
     config_val["external-controller"] = json!(format!("127.0.0.1:{controller_port}"));
@@ -208,8 +223,13 @@ fn main() {
     }
 
     let mut cmd = Command::new(binary);
-    cmd.arg("-d").arg(&dir).arg("-f").arg(&config_path)
-        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    cmd.arg("-d")
+        .arg(&dir)
+        .arg("-f")
+        .arg(&config_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -221,7 +241,10 @@ fn main() {
         dir,
     };
 
-    println!("\nMihomo core started on port {} (API on {}).", mixed_port, controller_port);
+    println!(
+        "\nMihomo core started on port {} (API on {}).",
+        mixed_port, controller_port
+    );
 
     // HTTP client to query Mihomo REST API
     let http = Client::builder()
@@ -233,7 +256,8 @@ fn main() {
     // Wait for API ready
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        if http.get(format!("http://127.0.0.1:{controller_port}/proxies"))
+        if http
+            .get(format!("http://127.0.0.1:{controller_port}/proxies"))
             .bearer_auth(secret)
             .send()
             .is_ok_and(|r| r.status().is_success())
@@ -248,8 +272,13 @@ fn main() {
     }
 
     println!("Mihomo API ready. Measuring live physical latency through each proxy...");
-    let proxies_json: Value = http.get(format!("http://127.0.0.1:{controller_port}/proxies"))
-        .bearer_auth(secret).send().unwrap().json().unwrap();
+    let proxies_json: Value = http
+        .get(format!("http://127.0.0.1:{controller_port}/proxies"))
+        .bearer_auth(secret)
+        .send()
+        .unwrap()
+        .json()
+        .unwrap();
 
     let proxy_map = proxies_json["proxies"].as_object().unwrap();
     let mut tested_proxy_names: Vec<(String, String)> = Vec::new(); // (node_name, mihomo_proxy_name)
@@ -266,13 +295,18 @@ fn main() {
 
     if tested_proxy_names.is_empty() {
         for (m_name, m_val) in proxy_map {
-            if m_val["type"].as_str() != Some("Selector") && m_val["type"].as_str() != Some("URLTest") {
+            if m_val["type"].as_str() != Some("Selector")
+                && m_val["type"].as_str() != Some("URLTest")
+            {
                 tested_proxy_names.push((m_name.clone(), m_name.clone()));
             }
         }
     }
 
-    println!("Found {} proxies to probe via Mihomo.", tested_proxy_names.len());
+    println!(
+        "Found {} proxies to probe via Mihomo.",
+        tested_proxy_names.len()
+    );
 
     let num_rounds = 20; // 20 live probe rounds per server
     let mut physical_measurements: Vec<Vec<Option<u64>>> = Vec::with_capacity(num_rounds);
@@ -286,7 +320,8 @@ fn main() {
                 "http://127.0.0.1:{controller_port}/proxies/{encoded_name}/delay?url=https://www.gstatic.com/generate_204&timeout=3500"
             );
             let resp = http.get(&probe_url).bearer_auth(secret).send();
-            let delay: Option<u64> = resp.ok()
+            let delay: Option<u64> = resp
+                .ok()
                 .and_then(|r| r.json::<Value>().ok())
                 .and_then(|v| v["delay"].as_u64())
                 .filter(|&d| d > 0);
@@ -295,19 +330,33 @@ fn main() {
             std::thread::sleep(Duration::from_millis(50));
         }
         let responded = round_rtts.iter().filter(|x| x.is_some()).count();
-        println!("  Probe Round {:>2}/{}: {}/{} proxies responded", r + 1, num_rounds, responded, tested_proxy_names.len());
+        println!(
+            "  Probe Round {:>2}/{}: {}/{} proxies responded",
+            r + 1,
+            num_rounds,
+            responded,
+            tested_proxy_names.len()
+        );
         physical_measurements.push(round_rtts);
         std::thread::sleep(Duration::from_millis(150));
     }
 
     // Display baseline table
-    println!("\nPhysical Endpoint Health & Latency Baseline (via Mihomo to gstatic.com/generate_204):");
+    println!(
+        "\nPhysical Endpoint Health & Latency Baseline (via Mihomo to gstatic.com/generate_204):"
+    );
     println!("--------------------------------------------------------------------------------------------------");
-    println!("{:<32} {:>10} {:>10} {:>10} {:>14} {:>12}", "Server", "Mean RTT", "Min RTT", "Max RTT", "Jitter (StdDev)", "Reliability");
+    println!(
+        "{:<32} {:>10} {:>10} {:>10} {:>14} {:>12}",
+        "Server", "Mean RTT", "Min RTT", "Max RTT", "Jitter (StdDev)", "Reliability"
+    );
     println!("--------------------------------------------------------------------------------------------------");
 
     for (idx, (node_name, _)) in tested_proxy_names.iter().enumerate() {
-        let rtts: Vec<f64> = physical_measurements.iter().filter_map(|row| row.get(idx).copied().flatten().map(|v| v as f64)).collect();
+        let rtts: Vec<f64> = physical_measurements
+            .iter()
+            .filter_map(|row| row.get(idx).copied().flatten().map(|v| v as f64))
+            .collect();
         if !rtts.is_empty() {
             let count = rtts.len() as f64;
             let mean = rtts.iter().sum::<f64>() / count;
@@ -316,7 +365,10 @@ fn main() {
             let variance = rtts.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / count;
             let jitter = variance.sqrt();
             let reliability = 100.0 * count / (num_rounds as f64);
-            println!("{:<32} {:>9.1}ms {:>9.1}ms {:>9.1}ms {:>12.2}ms {:>11.1}%", node_name, mean, min, max, jitter, reliability);
+            println!(
+                "{:<32} {:>9.1}ms {:>9.1}ms {:>9.1}ms {:>12.2}ms {:>11.1}%",
+                node_name, mean, min, max, jitter, reliability
+            );
         } else {
             println!("{:<32}      FAILED (timeout / blocked)", node_name);
         }
@@ -364,7 +416,8 @@ fn main() {
                 candidates.push((node, node.delay.unwrap()));
             }
 
-            let chosen = evaluate_mihomo_url_test_selection(&candidates, current_selected.as_deref(), tol);
+            let chosen =
+                evaluate_mihomo_url_test_selection(&candidates, current_selected.as_deref(), tol);
             let switched = match &current_selected {
                 Some(prev) => prev != &chosen,
                 None => false,
@@ -397,7 +450,9 @@ fn main() {
 
     println!("\n=========================================================================================");
     println!("COMPARATIVE PHYSICAL MEASUREMENT RESULTS (REAL VPN SERVERS VIA MIHOMO)");
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
     println!("Tolerance    Mean RTT   p50 RTT   p95 RTT   p99 RTT   Flapping(Switches)   Active TCP Drops   ZERO Agreement");
     println!("------------------------------------------------------------------------------------------------------------------");
 
@@ -416,5 +471,7 @@ fn main() {
             stat.zero_agreement_pct(),
         );
     }
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
 }

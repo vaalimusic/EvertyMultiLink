@@ -13,7 +13,9 @@
 
 pub struct Rng(u64);
 impl Rng {
-    pub fn new(seed: u64) -> Self { Self(seed.max(1)) }
+    pub fn new(seed: u64) -> Self {
+        Self(seed.max(1))
+    }
     pub fn next(&mut self) -> u64 {
         self.0 ^= self.0 << 13;
         self.0 ^= self.0 >> 7;
@@ -53,10 +55,30 @@ impl MultiScenarioWorld {
             step: 0,
             scenario,
             nodes: [
-                SimNode { base_latency: 45.0, jitter: 6.0, alive: true, packet_loss: 0.0 },  // N0: Fast leader
-                SimNode { base_latency: 85.0, jitter: 8.0, alive: true, packet_loss: 0.0 },  // N1: Medium
-                SimNode { base_latency: 125.0, jitter: 10.0, alive: true, packet_loss: 0.0 },// N2: Moderate
-                SimNode { base_latency: 180.0, jitter: 5.0, alive: true, packet_loss: 0.0 }, // N3: Backup
+                SimNode {
+                    base_latency: 45.0,
+                    jitter: 6.0,
+                    alive: true,
+                    packet_loss: 0.0,
+                }, // N0: Fast leader
+                SimNode {
+                    base_latency: 85.0,
+                    jitter: 8.0,
+                    alive: true,
+                    packet_loss: 0.0,
+                }, // N1: Medium
+                SimNode {
+                    base_latency: 125.0,
+                    jitter: 10.0,
+                    alive: true,
+                    packet_loss: 0.0,
+                }, // N2: Moderate
+                SimNode {
+                    base_latency: 180.0,
+                    jitter: 5.0,
+                    alive: true,
+                    packet_loss: 0.0,
+                }, // N3: Backup
             ],
         }
     }
@@ -114,12 +136,19 @@ pub struct RunStats {
 
 impl RunStats {
     pub fn mean_rtt(&self) -> f64 {
-        if self.experienced_rtts.is_empty() { 0.0 } else { self.experienced_rtts.iter().sum::<f64>() / self.experienced_rtts.len() as f64 }
+        if self.experienced_rtts.is_empty() {
+            0.0
+        } else {
+            self.experienced_rtts.iter().sum::<f64>() / self.experienced_rtts.len() as f64
+        }
     }
     pub fn p95_rtt(&mut self) -> f64 {
-        if self.experienced_rtts.is_empty() { return 0.0; }
+        if self.experienced_rtts.is_empty() {
+            return 0.0;
+        }
         self.experienced_rtts.sort_by(|a, b| a.total_cmp(b));
-        let idx = ((self.experienced_rtts.len() as f64 * 0.95) as usize).min(self.experienced_rtts.len() - 1);
+        let idx = ((self.experienced_rtts.len() as f64 * 0.95) as usize)
+            .min(self.experienced_rtts.len() - 1);
         self.experienced_rtts[idx]
     }
 }
@@ -144,7 +173,13 @@ impl FixedScheduler {
         }
     }
 
-    fn step(&mut self, step: usize, world: &MultiScenarioWorld, rng: &mut Rng, stats: &mut RunStats) {
+    fn step(
+        &mut self,
+        step: usize,
+        world: &MultiScenarioWorld,
+        rng: &mut Rng,
+        stats: &mut RunStats,
+    ) {
         // Probe all 4 nodes every 20 steps
         if step >= self.last_probe + 20 && self.budget >= 4 {
             self.last_probe = step;
@@ -164,7 +199,11 @@ impl FixedScheduler {
             if changed {
                 let best = (0..4)
                     .filter(|&i| self.cached_rtt[i].is_some())
-                    .min_by(|&a, &b| self.cached_rtt[a].unwrap().total_cmp(&self.cached_rtt[b].unwrap()));
+                    .min_by(|&a, &b| {
+                        self.cached_rtt[a]
+                            .unwrap()
+                            .total_cmp(&self.cached_rtt[b].unwrap())
+                    });
                 if let Some(b) = best {
                     if b != self.current_selected {
                         self.current_selected = b;
@@ -208,7 +247,13 @@ impl SimpleAdaptiveScheduler {
         }
     }
 
-    fn step(&mut self, step: usize, world: &MultiScenarioWorld, rng: &mut Rng, stats: &mut RunStats) {
+    fn step(
+        &mut self,
+        step: usize,
+        world: &MultiScenarioWorld,
+        rng: &mut Rng,
+        stats: &mut RunStats,
+    ) {
         stats.total_requests += 1;
         let user_obs = world.probe(self.current_selected, rng);
 
@@ -230,7 +275,9 @@ impl SimpleAdaptiveScheduler {
                         self.budget -= 1;
                         self.cached_rtt[i] = res;
                         self.last_probe[i] = step;
-                        if res.is_some() { break; }
+                        if res.is_some() {
+                            break;
+                        }
                     }
                 }
             }
@@ -246,7 +293,9 @@ impl SimpleAdaptiveScheduler {
                     self.budget -= 1;
                     self.cached_rtt[i] = res;
                     self.last_probe[i] = step;
-                    if prev == res { stats.wasted_probes += 1; }
+                    if prev == res {
+                        stats.wasted_probes += 1;
+                    }
                     break;
                 }
             }
@@ -254,7 +303,11 @@ impl SimpleAdaptiveScheduler {
 
         let best = (0..4)
             .filter(|&i| self.cached_rtt[i].is_some())
-            .min_by(|&a, &b| self.cached_rtt[a].unwrap().total_cmp(&self.cached_rtt[b].unwrap()))
+            .min_by(|&a, &b| {
+                self.cached_rtt[a]
+                    .unwrap()
+                    .total_cmp(&self.cached_rtt[b].unwrap())
+            })
             .unwrap_or(3);
 
         if best != self.current_selected {
@@ -294,7 +347,13 @@ impl ZeroRecoveryScheduler {
         }
     }
 
-    fn step(&mut self, step: usize, world: &MultiScenarioWorld, rng: &mut Rng, stats: &mut RunStats) {
+    fn step(
+        &mut self,
+        step: usize,
+        world: &MultiScenarioWorld,
+        rng: &mut Rng,
+        stats: &mut RunStats,
+    ) {
         // 1. Serve user request
         stats.total_requests += 1;
         let chosen = self.current_selected;
@@ -336,7 +395,9 @@ impl ZeroRecoveryScheduler {
         if self.budget > 0 {
             if active_failed {
                 // Emergency failover probe: test best viable candidate
-                let mut candidates: Vec<usize> = (0..4).filter(|&i| i != chosen && !self.is_failing[i]).collect();
+                let mut candidates: Vec<usize> = (0..4)
+                    .filter(|&i| i != chosen && !self.is_failing[i])
+                    .collect();
                 if candidates.is_empty() {
                     candidates = (0..4).filter(|&i| i != chosen).collect();
                 }
@@ -431,7 +492,9 @@ fn run_scenario_benchmark(scenario: ScenarioKind, label: &'static str) {
     println!("\n=========================================================================================");
     println!("SCENARIO: {}", label);
     println!("Comparing Fixed (Mihomo) vs Simple Adaptive vs ZERO Recovery-Aware (Budget = 250)");
-    println!("-----------------------------------------------------------------------------------------");
+    println!(
+        "-----------------------------------------------------------------------------------------"
+    );
 
     let seeds = 30;
     let mut fixed_stats: Vec<RunStats> = Vec::new();
@@ -463,14 +526,21 @@ fn run_scenario_benchmark(scenario: ScenarioKind, label: &'static str) {
         zero_stats.push(z_s);
     }
 
-    println!("{:<32} {:>10} {:>10} {:>10} {:>12} {:>12} {:>14}",
-        "Strategy", "Mean RTT", "p95 RTT", "Success%", "Probes Used", "Wasted%", "Switches");
-    println!("-----------------------------------------------------------------------------------------");
+    println!(
+        "{:<32} {:>10} {:>10} {:>10} {:>12} {:>12} {:>14}",
+        "Strategy", "Mean RTT", "p95 RTT", "Success%", "Probes Used", "Wasted%", "Switches"
+    );
+    println!(
+        "-----------------------------------------------------------------------------------------"
+    );
 
     let print_row = |name: &'static str, list: Vec<RunStats>| {
         let n = list.len() as f64;
         let mean: f64 = list.iter().map(|s| s.mean_rtt()).sum::<f64>() / n;
-        let mut all_rtts: Vec<f64> = list.iter().flat_map(|s| s.experienced_rtts.clone()).collect();
+        let mut all_rtts: Vec<f64> = list
+            .iter()
+            .flat_map(|s| s.experienced_rtts.clone())
+            .collect();
         all_rtts.sort_by(|a, b| a.total_cmp(b));
         let p95 = all_rtts[(all_rtts.len() as f64 * 0.95) as usize];
         let tot_req: usize = list.iter().map(|s| s.total_requests).sum();
@@ -478,7 +548,11 @@ fn run_scenario_benchmark(scenario: ScenarioKind, label: &'static str) {
         let succ_pct = 100.0 * tot_succ as f64 / tot_req as f64;
         let probes_avg: f64 = list.iter().map(|s| s.probes_spent).sum::<usize>() as f64 / n;
         let wasted_avg: f64 = list.iter().map(|s| s.wasted_probes).sum::<usize>() as f64 / n;
-        let wasted_pct = if probes_avg > 0.0 { 100.0 * wasted_avg / probes_avg } else { 0.0 };
+        let wasted_pct = if probes_avg > 0.0 {
+            100.0 * wasted_avg / probes_avg
+        } else {
+            0.0
+        };
         let sw_avg: f64 = list.iter().map(|s| s.route_switches).sum::<usize>() as f64 / n;
 
         println!(
@@ -493,13 +567,29 @@ fn run_scenario_benchmark(scenario: ScenarioKind, label: &'static str) {
 }
 
 fn main() {
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
     println!("ZERO RECOVERY-AWARE EXPLORATION BENCHMARK (EXPERIMENT B)");
     println!("Testing Recovery Discovery, Exponential Backoff & Value of Information");
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
 
-    run_scenario_benchmark(ScenarioKind::ProlongedOutage, "1. Prolonged Outage (Node 0 down 250 steps)");
-    run_scenario_benchmark(ScenarioKind::QuickFlap, "2. Quick Flap (Node 0 down 25 steps)");
-    run_scenario_benchmark(ScenarioKind::IntermittentFlapping, "3. Intermittent Packet Loss & Jitter Spikes");
-    run_scenario_benchmark(ScenarioKind::CascadingDoubleOutage, "4. Cascading Double Outage (Both fast nodes down)");
+    run_scenario_benchmark(
+        ScenarioKind::ProlongedOutage,
+        "1. Prolonged Outage (Node 0 down 250 steps)",
+    );
+    run_scenario_benchmark(
+        ScenarioKind::QuickFlap,
+        "2. Quick Flap (Node 0 down 25 steps)",
+    );
+    run_scenario_benchmark(
+        ScenarioKind::IntermittentFlapping,
+        "3. Intermittent Packet Loss & Jitter Spikes",
+    );
+    run_scenario_benchmark(
+        ScenarioKind::CascadingDoubleOutage,
+        "4. Cascading Double Outage (Both fast nodes down)",
+    );
 }

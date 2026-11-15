@@ -35,9 +35,9 @@ impl Rng {
 pub struct NetworkEnvironment {
     pub phase: usize,
     pub node_a_contextual_block: bool, // Node A blocked on github.com
-    pub node_b_total_outage: bool,       // Node B crashed (100% fail)
-    pub node_c_jitter_spike: bool,       // Node C latency jumps from 130ms to 320ms + jitter
-    pub local_network_drop: bool,        // Wi-Fi packet drop (all nodes fail)
+    pub node_b_total_outage: bool,     // Node B crashed (100% fail)
+    pub node_c_jitter_spike: bool,     // Node C latency jumps from 130ms to 320ms + jitter
+    pub local_network_drop: bool,      // Wi-Fi packet drop (all nodes fail)
 }
 
 impl NetworkEnvironment {
@@ -152,7 +152,13 @@ struct MihomoL1Gate {
 
 impl MihomoL1Gate {
     /// Background L1 probe update (models Mihomo's periodic url-test probe)
-    fn background_probe(&mut self, nodes: &[Node], domains: &[&str], env: &NetworkEnvironment, rng: &mut Rng) {
+    fn background_probe(
+        &mut self,
+        nodes: &[Node],
+        domains: &[&str],
+        env: &NetworkEnvironment,
+        rng: &mut Rng,
+    ) {
         for node in nodes {
             // General health probe (Google 204)
             let (_, ok_global) = execute_connection(node, "gstatic.com", env, rng);
@@ -183,7 +189,11 @@ impl MihomoL1Gate {
             .iter()
             .filter(|n| {
                 let g_fails = self.global_fails.get(&n.name).copied().unwrap_or(0);
-                let s_fails = self.fail_counts.get(&(n.name.clone(), domain.to_string())).copied().unwrap_or(0);
+                let s_fails = self
+                    .fail_counts
+                    .get(&(n.name.clone(), domain.to_string()))
+                    .copied()
+                    .unwrap_or(0);
                 g_fails < 2 && s_fails < 2
             })
             .collect()
@@ -191,10 +201,7 @@ impl MihomoL1Gate {
 }
 
 // ---------------- Strategy 1: Native Smart Mode Selection ----------------
-fn select_native_smart(
-    available: &[&Node],
-    last_selected: Option<&str>,
-) -> String {
+fn select_native_smart(available: &[&Node], last_selected: Option<&str>) -> String {
     if available.is_empty() {
         return "Node-D".to_string(); // Fallback
     }
@@ -218,10 +225,7 @@ fn select_native_smart(
 }
 
 // ---------------- Strategy 2: L1 + Min RTT with Hysteresis (20ms) ----------------
-fn select_min_rtt_hysteresis(
-    available: &[&Node],
-    last_selected: Option<&str>,
-) -> String {
+fn select_min_rtt_hysteresis(available: &[&Node], last_selected: Option<&str>) -> String {
     if available.is_empty() {
         return "Node-D".to_string();
     }
@@ -298,11 +302,17 @@ impl RunStats {
 }
 
 fn main() {
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
     println!("ZERO HYBRID SMART MODE BENCHMARK (L1 Availability Gate + L2 Adaptive Scoring)");
-    println!("Testing 4 Architectures across 30 Independent Seeds | 3,000 tasks/seed (90,000 requests)");
+    println!(
+        "Testing 4 Architectures across 30 Independent Seeds | 3,000 tasks/seed (90,000 requests)"
+    );
     println!("Events: P1(Normal) -> P2(ContextBlock) -> P3(TotalOutage) -> P4(JitterSpike) -> P5(LocalDrop) -> P6(Recovery)");
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
 
     let domains = [
         "api.github.com",
@@ -368,32 +378,48 @@ fn main() {
 
             // ---------------- 1. Strategy 1: Native Smart Mode ----------------
             let t0 = Instant::now();
-            let choice_smart = black_box(select_native_smart(&candidates, last_smart_node.as_deref()));
+            let choice_smart =
+                black_box(select_native_smart(&candidates, last_smart_node.as_deref()));
             let ns_smart = t0.elapsed().as_nanos();
             last_smart_node = Some(choice_smart.clone());
-            let (lat_smart, ok_smart) = execute_connection(node_map[choice_smart.as_str()], domain, &env, &mut rng);
+            let (lat_smart, ok_smart) =
+                execute_connection(node_map[choice_smart.as_str()], domain, &env, &mut rng);
             stats_smart.record(ok_smart, lat_smart, ns_smart);
 
             // ---------------- 2. Strategy 2: L1 + Min RTT with Hysteresis (20ms) ----------------
             let t1 = Instant::now();
-            let choice_min_rtt = black_box(select_min_rtt_hysteresis(&candidates, last_min_rtt_node.as_deref()));
+            let choice_min_rtt = black_box(select_min_rtt_hysteresis(
+                &candidates,
+                last_min_rtt_node.as_deref(),
+            ));
             let ns_min_rtt = t1.elapsed().as_nanos();
             last_min_rtt_node = Some(choice_min_rtt.clone());
-            let (lat_min_rtt, ok_min_rtt) = execute_connection(node_map[choice_min_rtt.as_str()], domain, &env, &mut rng);
+            let (lat_min_rtt, ok_min_rtt) =
+                execute_connection(node_map[choice_min_rtt.as_str()], domain, &env, &mut rng);
             stats_min_rtt.record(ok_min_rtt, lat_min_rtt, ns_min_rtt);
 
             // ---------------- 3. Strategy 3: L1 + ZERO Multidim (No Dual) ----------------
             let t2 = Instant::now();
             let rec_raw = zero_raw.recommend(domain, &candidates).unwrap();
             let ns_raw = t2.elapsed().as_nanos();
-            let (lat_raw, ok_raw) = execute_connection(node_map[rec_raw.recommended_server.as_str()], domain, &env, &mut rng);
+            let (lat_raw, ok_raw) = execute_connection(
+                node_map[rec_raw.recommended_server.as_str()],
+                domain,
+                &env,
+                &mut rng,
+            );
             stats_zero_raw.record(ok_raw, lat_raw, ns_raw);
 
             // ---------------- 4. Strategy 4: L1 + ZERO Dual Health ----------------
             let t3 = Instant::now();
             let rec_dual = zero_dual.recommend(domain, &candidates).unwrap();
             let ns_dual = t3.elapsed().as_nanos();
-            let (lat_dual, ok_dual) = execute_connection(node_map[rec_dual.recommended_server.as_str()], domain, &env, &mut rng);
+            let (lat_dual, ok_dual) = execute_connection(
+                node_map[rec_dual.recommended_server.as_str()],
+                domain,
+                &env,
+                &mut rng,
+            );
             stats_zero_dual.record(ok_dual, lat_dual, ns_dual);
 
             // Feedback update for ZERO Dual Health
@@ -428,9 +454,13 @@ fn main() {
 
     println!("\n=========================================================================================");
     println!("FINAL COMPARATIVE RESULTS (30 SEEDS, 90,000 PAIRED CONNECTIONS)");
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
     println!("Strategy                 Mean RTT   p50 RTT   p95 RTT   p99 RTT   Success%   Reconnections  Latency(ns)");
-    println!("-----------------------------------------------------------------------------------------");
+    println!(
+        "-----------------------------------------------------------------------------------------"
+    );
     println!(
         "{:<24} {:>7.1}ms {:>7}ms {:>7}ms {:>7}ms {:>9.2}% {:>14} {:>11}",
         "1. Current Smart Mode",
@@ -475,5 +505,7 @@ fn main() {
         stats_zero_dual.reconnections,
         stats_zero_dual.decision_nanos / stats_zero_dual.total_connections as u128
     );
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
 }

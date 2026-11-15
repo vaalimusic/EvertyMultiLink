@@ -10,7 +10,9 @@
 
 pub struct Rng(u64);
 impl Rng {
-    pub fn new(seed: u64) -> Self { Self(seed.max(1)) }
+    pub fn new(seed: u64) -> Self {
+        Self(seed.max(1))
+    }
     pub fn next(&mut self) -> u64 {
         self.0 ^= self.0 << 13;
         self.0 ^= self.0 >> 7;
@@ -34,7 +36,7 @@ pub struct MarkovNode {
 pub struct StochasticWorld {
     pub step: usize,
     pub nodes: [MarkovNode; 4],
-    pub failure_events: Vec<(usize, usize)>, // (node, step)
+    pub failure_events: Vec<(usize, usize)>,  // (node, step)
     pub recovery_events: Vec<(usize, usize)>, // (node, step)
 }
 
@@ -43,10 +45,34 @@ impl StochasticWorld {
         Self {
             step: 0,
             nodes: [
-                MarkovNode { base_latency: 45.0, jitter: 6.0, alive: true, p_fail: 0.003, p_recover: 0.02 }, // N0: Fast primary
-                MarkovNode { base_latency: 85.0, jitter: 8.0, alive: true, p_fail: 0.002, p_recover: 0.03 }, // N1: Medium
-                MarkovNode { base_latency: 125.0, jitter: 10.0, alive: true, p_fail: 0.001, p_recover: 0.04 },// N2: Moderate
-                MarkovNode { base_latency: 180.0, jitter: 5.0, alive: true, p_fail: 0.0001, p_recover: 0.05 },// N3: Backup
+                MarkovNode {
+                    base_latency: 45.0,
+                    jitter: 6.0,
+                    alive: true,
+                    p_fail: 0.003,
+                    p_recover: 0.02,
+                }, // N0: Fast primary
+                MarkovNode {
+                    base_latency: 85.0,
+                    jitter: 8.0,
+                    alive: true,
+                    p_fail: 0.002,
+                    p_recover: 0.03,
+                }, // N1: Medium
+                MarkovNode {
+                    base_latency: 125.0,
+                    jitter: 10.0,
+                    alive: true,
+                    p_fail: 0.001,
+                    p_recover: 0.04,
+                }, // N2: Moderate
+                MarkovNode {
+                    base_latency: 180.0,
+                    jitter: 5.0,
+                    alive: true,
+                    p_fail: 0.0001,
+                    p_recover: 0.05,
+                }, // N3: Backup
             ],
             failure_events: Vec::new(),
             recovery_events: Vec::new(),
@@ -112,20 +138,77 @@ trait SchedTrait {
 }
 
 impl SchedTrait for FixedScheduler {
-    fn step(&mut self, step: usize, world: &StochasticWorld, rng: &mut Rng, probes_spent: &mut usize, actionable_probes: &mut usize, switches: &mut usize, rtts: &mut Vec<f64>, succ: &mut usize) {
-        self.step(step, world, rng, probes_spent, actionable_probes, switches, rtts, succ);
+    fn step(
+        &mut self,
+        step: usize,
+        world: &StochasticWorld,
+        rng: &mut Rng,
+        probes_spent: &mut usize,
+        actionable_probes: &mut usize,
+        switches: &mut usize,
+        rtts: &mut Vec<f64>,
+        succ: &mut usize,
+    ) {
+        self.step(
+            step,
+            world,
+            rng,
+            probes_spent,
+            actionable_probes,
+            switches,
+            rtts,
+            succ,
+        );
     }
 }
 
 impl SchedTrait for SimpleAdaptiveScheduler {
-    fn step(&mut self, step: usize, world: &StochasticWorld, rng: &mut Rng, probes_spent: &mut usize, actionable_probes: &mut usize, switches: &mut usize, rtts: &mut Vec<f64>, succ: &mut usize) {
-        self.step(step, world, rng, probes_spent, actionable_probes, switches, rtts, succ);
+    fn step(
+        &mut self,
+        step: usize,
+        world: &StochasticWorld,
+        rng: &mut Rng,
+        probes_spent: &mut usize,
+        actionable_probes: &mut usize,
+        switches: &mut usize,
+        rtts: &mut Vec<f64>,
+        succ: &mut usize,
+    ) {
+        self.step(
+            step,
+            world,
+            rng,
+            probes_spent,
+            actionable_probes,
+            switches,
+            rtts,
+            succ,
+        );
     }
 }
 
 impl SchedTrait for ZeroScheduler {
-    fn step(&mut self, step: usize, world: &StochasticWorld, rng: &mut Rng, probes_spent: &mut usize, actionable_probes: &mut usize, switches: &mut usize, rtts: &mut Vec<f64>, succ: &mut usize) {
-        self.step(step, world, rng, probes_spent, actionable_probes, switches, rtts, succ);
+    fn step(
+        &mut self,
+        step: usize,
+        world: &StochasticWorld,
+        rng: &mut Rng,
+        probes_spent: &mut usize,
+        actionable_probes: &mut usize,
+        switches: &mut usize,
+        rtts: &mut Vec<f64>,
+        succ: &mut usize,
+    ) {
+        self.step(
+            step,
+            world,
+            rng,
+            probes_spent,
+            actionable_probes,
+            switches,
+            rtts,
+            succ,
+        );
     }
 }
 struct FixedScheduler {
@@ -167,7 +250,11 @@ impl FixedScheduler {
 
             let best = (0..4)
                 .filter(|&i| self.cached_rtt[i].is_some())
-                .min_by(|&a, &b| self.cached_rtt[a].unwrap().total_cmp(&self.cached_rtt[b].unwrap()))
+                .min_by(|&a, &b| {
+                    self.cached_rtt[a]
+                        .unwrap()
+                        .total_cmp(&self.cached_rtt[b].unwrap())
+                })
                 .unwrap_or(3);
 
             if best != prev_selected {
@@ -266,7 +353,11 @@ impl SimpleAdaptiveScheduler {
 
         let best = (0..4)
             .filter(|&i| self.cached_rtt[i].is_some())
-            .min_by(|&a, &b| self.cached_rtt[a].unwrap().total_cmp(&self.cached_rtt[b].unwrap()))
+            .min_by(|&a, &b| {
+                self.cached_rtt[a]
+                    .unwrap()
+                    .total_cmp(&self.cached_rtt[b].unwrap())
+            })
             .unwrap_or(3);
 
         if best != self.current_selected {
@@ -338,7 +429,8 @@ impl ZeroScheduler {
                 rtts.push(1200.0);
                 self.is_failing[chosen] = true;
                 self.consecutive_probe_failures[chosen] += 1;
-                let backoff = self.base_backoff * (1 << self.consecutive_probe_failures[chosen].min(5));
+                let backoff =
+                    self.base_backoff * (1 << self.consecutive_probe_failures[chosen].min(5));
                 self.next_allowed_probe_step[chosen] = step + backoff;
                 true
             }
@@ -353,7 +445,9 @@ impl ZeroScheduler {
         }
 
         if active_failed {
-            let mut candidates: Vec<usize> = (0..4).filter(|&i| i != chosen && !self.is_failing[i]).collect();
+            let mut candidates: Vec<usize> = (0..4)
+                .filter(|&i| i != chosen && !self.is_failing[i])
+                .collect();
             if candidates.is_empty() {
                 candidates = (0..4).filter(|&i| i != chosen).collect();
             }
@@ -414,7 +508,8 @@ impl ZeroScheduler {
                     }
                 } else {
                     self.consecutive_probe_failures[target] += 1;
-                    let backoff = self.base_backoff * (1 << self.consecutive_probe_failures[target].min(5));
+                    let backoff =
+                        self.base_backoff * (1 << self.consecutive_probe_failures[target].min(5));
                     self.next_allowed_probe_step[target] = step + backoff;
                 }
             }
@@ -432,10 +527,25 @@ impl ZeroScheduler {
     }
 }
 
-fn evaluate_strategy<S, F>(strategy_name: &'static str, param_label: String, mut init: S, mut runner: F) -> ParetoMetrics
+fn evaluate_strategy<S, F>(
+    strategy_name: &'static str,
+    param_label: String,
+    mut init: S,
+    mut runner: F,
+) -> ParetoMetrics
 where
     S: FnMut() -> Box<dyn SchedTrait>,
-    F: FnMut(&mut dyn SchedTrait, usize, &StochasticWorld, &mut Rng, &mut usize, &mut usize, &mut usize, &mut Vec<f64>, &mut usize),
+    F: FnMut(
+        &mut dyn SchedTrait,
+        usize,
+        &StochasticWorld,
+        &mut Rng,
+        &mut usize,
+        &mut usize,
+        &mut usize,
+        &mut Vec<f64>,
+        &mut usize,
+    ),
 {
     let seeds = 30;
     let mut all_probes = Vec::new();
@@ -459,7 +569,17 @@ where
 
         for step in 0..1000 {
             world.advance(step, &mut rng);
-            runner(sched.as_mut(), step, &world, &mut rng, &mut probes_spent, &mut actionable, &mut switches, &mut rtts, &mut succ);
+            runner(
+                sched.as_mut(),
+                step,
+                &world,
+                &mut rng,
+                &mut probes_spent,
+                &mut actionable,
+                &mut switches,
+                &mut rtts,
+                &mut succ,
+            );
         }
 
         all_probes.push(probes_spent as f64);
@@ -474,7 +594,11 @@ where
     let n = seeds as f64;
     let actual_probes = all_probes.iter().sum::<f64>() / n;
     let actionable_avg = all_actionable.iter().sum::<f64>() / n;
-    let actionable_pct = if actual_probes > 0.0 { 100.0 * actionable_avg / actual_probes } else { 0.0 };
+    let actionable_pct = if actual_probes > 0.0 {
+        100.0 * actionable_avg / actual_probes
+    } else {
+        0.0
+    };
     let mean_rtt = all_rtts.iter().sum::<f64>() / all_rtts.len() as f64;
     let p95 = all_rtts[(all_rtts.len() as f64 * 0.95) as usize];
     let p99 = all_rtts[(all_rtts.len() as f64 * 0.99) as usize];
@@ -497,11 +621,17 @@ where
 }
 
 fn main() {
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
     println!("ZERO PROBE SCHEDULING — PARETO BENCHMARK");
-    println!("Mapping Pareto Frontier: Cost (Actual Probes / 1,000 steps) vs Latency (Mean User RTT)");
+    println!(
+        "Mapping Pareto Frontier: Cost (Actual Probes / 1,000 steps) vs Latency (Mean User RTT)"
+    );
     println!("30 Independent Seeds per Point | Stochastic Markov Outages & Recoveries");
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
 
     let mut points: Vec<ParetoMetrics> = Vec::new();
 
@@ -529,13 +659,13 @@ fn main() {
 
     // 3. ZERO Recovery-Aware Sweep (Gain Thresh & Base Backoff combinations)
     let zero_params = [
-        (1.0, 2, "Thresh=1ms, Backoff=2 (Ultra)"),  // Ultra-aggressive
-        (3.0, 4, "Thresh=3ms, Backoff=4 (Fast)"),   // Fast
-        (5.0, 5, "Thresh=5ms, Backoff=5"),          // Aggressive
-        (10.0, 10, "Thresh=10ms, Backoff=10"),       // Balanced
-        (20.0, 15, "Thresh=20ms, Backoff=15"),       // Moderate
-        (35.0, 30, "Thresh=35ms, Backoff=30"),       // Conservative
-        (50.0, 60, "Thresh=50ms, Backoff=60"),       // Highly frugal
+        (1.0, 2, "Thresh=1ms, Backoff=2 (Ultra)"), // Ultra-aggressive
+        (3.0, 4, "Thresh=3ms, Backoff=4 (Fast)"),  // Fast
+        (5.0, 5, "Thresh=5ms, Backoff=5"),         // Aggressive
+        (10.0, 10, "Thresh=10ms, Backoff=10"),     // Balanced
+        (20.0, 15, "Thresh=20ms, Backoff=15"),     // Moderate
+        (35.0, 30, "Thresh=35ms, Backoff=30"),     // Conservative
+        (50.0, 60, "Thresh=50ms, Backoff=60"),     // Highly frugal
     ];
 
     for &(thresh, backoff, label) in &zero_params {
@@ -550,46 +680,158 @@ fn main() {
 
     println!("\n=========================================================================================");
     println!("PARETO BENCHMARK RESULTS (SORTED BY STRATEGY & ACTUAL PROBE COST)");
-    println!("=========================================================================================");
-    println!("{:<28} {:<24} {:>10} {:>10} {:>9} {:>9} {:>10} {:>10}",
-        "Strategy", "Parameters", "Probes (X)", "Mean (Y)", "p95 RTT", "p99 RTT", "Success%", "Actionable%");
+    println!(
+        "========================================================================================="
+    );
+    println!(
+        "{:<28} {:<24} {:>10} {:>10} {:>9} {:>9} {:>10} {:>10}",
+        "Strategy",
+        "Parameters",
+        "Probes (X)",
+        "Mean (Y)",
+        "p95 RTT",
+        "p99 RTT",
+        "Success%",
+        "Actionable%"
+    );
     println!("------------------------------------------------------------------------------------------------------------------");
 
     for pt in &points {
         println!(
             "{:<28} {:<24} {:>9.1} {:>9.1}ms {:>8.1}ms {:>8.1}ms {:>9.2}% {:>9.1}%",
-            pt.strategy_name, pt.param_label, pt.actual_probes, pt.mean_rtt, pt.p95_rtt, pt.p99_rtt, pt.success_pct, pt.actionable_probes_pct
+            pt.strategy_name,
+            pt.param_label,
+            pt.actual_probes,
+            pt.mean_rtt,
+            pt.p95_rtt,
+            pt.p99_rtt,
+            pt.success_pct,
+            pt.actionable_probes_pct
         );
     }
 
     // Direct Pareto Comparison at Similar Probe Budgets
     println!("\n=========================================================================================");
     println!("DIRECT PARETO COMPARISON AT SIMILAR PROBE BANDS");
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
 
     println!("\n--- BAND 1: ULTRA-LOW PROBE BUDGET (~15 - 35 Probes / 1000 steps) ---");
-    let b1_fixed = points.iter().find(|p| p.strategy_name.contains("Fixed") && p.param_label.contains("160")).unwrap();
-    let b1_heur = points.iter().find(|p| p.strategy_name.contains("Adaptive") && p.param_label.contains("120")).unwrap();
-    let b1_zero = points.iter().find(|p| p.strategy_name.contains("ZERO") && p.param_label.contains("35ms")).unwrap();
-    println!("{:<28} -> Probes: {:>5.1} | Mean RTT: {:>6.1}ms | p95: {:>6.1}ms | Actionable: {:>5.1}%", b1_fixed.strategy_name, b1_fixed.actual_probes, b1_fixed.mean_rtt, b1_fixed.p95_rtt, b1_fixed.actionable_probes_pct);
-    println!("{:<28} -> Probes: {:>5.1} | Mean RTT: {:>6.1}ms | p95: {:>6.1}ms | Actionable: {:>5.1}%", b1_heur.strategy_name, b1_heur.actual_probes, b1_heur.mean_rtt, b1_heur.p95_rtt, b1_heur.actionable_probes_pct);
-    println!("{:<28} -> Probes: {:>5.1} | Mean RTT: {:>6.1}ms | p95: {:>6.1}ms | Actionable: {:>5.1}%", b1_zero.strategy_name, b1_zero.actual_probes, b1_zero.mean_rtt, b1_zero.p95_rtt, b1_zero.actionable_probes_pct);
+    let b1_fixed = points
+        .iter()
+        .find(|p| p.strategy_name.contains("Fixed") && p.param_label.contains("160"))
+        .unwrap();
+    let b1_heur = points
+        .iter()
+        .find(|p| p.strategy_name.contains("Adaptive") && p.param_label.contains("120"))
+        .unwrap();
+    let b1_zero = points
+        .iter()
+        .find(|p| p.strategy_name.contains("ZERO") && p.param_label.contains("35ms"))
+        .unwrap();
+    println!(
+        "{:<28} -> Probes: {:>5.1} | Mean RTT: {:>6.1}ms | p95: {:>6.1}ms | Actionable: {:>5.1}%",
+        b1_fixed.strategy_name,
+        b1_fixed.actual_probes,
+        b1_fixed.mean_rtt,
+        b1_fixed.p95_rtt,
+        b1_fixed.actionable_probes_pct
+    );
+    println!(
+        "{:<28} -> Probes: {:>5.1} | Mean RTT: {:>6.1}ms | p95: {:>6.1}ms | Actionable: {:>5.1}%",
+        b1_heur.strategy_name,
+        b1_heur.actual_probes,
+        b1_heur.mean_rtt,
+        b1_heur.p95_rtt,
+        b1_heur.actionable_probes_pct
+    );
+    println!(
+        "{:<28} -> Probes: {:>5.1} | Mean RTT: {:>6.1}ms | p95: {:>6.1}ms | Actionable: {:>5.1}%",
+        b1_zero.strategy_name,
+        b1_zero.actual_probes,
+        b1_zero.mean_rtt,
+        b1_zero.p95_rtt,
+        b1_zero.actionable_probes_pct
+    );
 
     println!("\n--- BAND 2: MEDIUM PROBE BUDGET (~40 - 75 Probes / 1000 steps) ---");
-    let b2_fixed = points.iter().find(|p| p.strategy_name.contains("Fixed") && p.param_label.contains("80")).unwrap();
-    let b2_heur = points.iter().find(|p| p.strategy_name.contains("Adaptive") && p.param_label.contains("60")).unwrap();
-    let b2_zero = points.iter().find(|p| p.strategy_name.contains("ZERO") && p.param_label.contains("10ms")).unwrap();
-    println!("{:<28} -> Probes: {:>5.1} | Mean RTT: {:>6.1}ms | p95: {:>6.1}ms | Actionable: {:>5.1}%", b2_fixed.strategy_name, b2_fixed.actual_probes, b2_fixed.mean_rtt, b2_fixed.p95_rtt, b2_fixed.actionable_probes_pct);
-    println!("{:<28} -> Probes: {:>5.1} | Mean RTT: {:>6.1}ms | p95: {:>6.1}ms | Actionable: {:>5.1}%", b2_heur.strategy_name, b2_heur.actual_probes, b2_heur.mean_rtt, b2_heur.p95_rtt, b2_heur.actionable_probes_pct);
-    println!("{:<28} -> Probes: {:>5.1} | Mean RTT: {:>6.1}ms | p95: {:>6.1}ms | Actionable: {:>5.1}%", b2_zero.strategy_name, b2_zero.actual_probes, b2_zero.mean_rtt, b2_zero.p95_rtt, b2_zero.actionable_probes_pct);
+    let b2_fixed = points
+        .iter()
+        .find(|p| p.strategy_name.contains("Fixed") && p.param_label.contains("80"))
+        .unwrap();
+    let b2_heur = points
+        .iter()
+        .find(|p| p.strategy_name.contains("Adaptive") && p.param_label.contains("60"))
+        .unwrap();
+    let b2_zero = points
+        .iter()
+        .find(|p| p.strategy_name.contains("ZERO") && p.param_label.contains("10ms"))
+        .unwrap();
+    println!(
+        "{:<28} -> Probes: {:>5.1} | Mean RTT: {:>6.1}ms | p95: {:>6.1}ms | Actionable: {:>5.1}%",
+        b2_fixed.strategy_name,
+        b2_fixed.actual_probes,
+        b2_fixed.mean_rtt,
+        b2_fixed.p95_rtt,
+        b2_fixed.actionable_probes_pct
+    );
+    println!(
+        "{:<28} -> Probes: {:>5.1} | Mean RTT: {:>6.1}ms | p95: {:>6.1}ms | Actionable: {:>5.1}%",
+        b2_heur.strategy_name,
+        b2_heur.actual_probes,
+        b2_heur.mean_rtt,
+        b2_heur.p95_rtt,
+        b2_heur.actionable_probes_pct
+    );
+    println!(
+        "{:<28} -> Probes: {:>5.1} | Mean RTT: {:>6.1}ms | p95: {:>6.1}ms | Actionable: {:>5.1}%",
+        b2_zero.strategy_name,
+        b2_zero.actual_probes,
+        b2_zero.mean_rtt,
+        b2_zero.p95_rtt,
+        b2_zero.actionable_probes_pct
+    );
 
     println!("\n--- BAND 3: HIGH PROBE BUDGET (~100 - 200 Probes / 1000 steps) ---");
-    let b3_fixed = points.iter().find(|p| p.strategy_name.contains("Fixed") && p.param_label.contains("20")).unwrap();
-    let b3_heur = points.iter().find(|p| p.strategy_name.contains("Adaptive") && p.param_label.contains("15")).unwrap();
-    let b3_zero = points.iter().find(|p| p.strategy_name.contains("ZERO") && p.param_label.contains("5ms")).unwrap();
-    println!("{:<28} -> Probes: {:>5.1} | Mean RTT: {:>6.1}ms | p95: {:>6.1}ms | Actionable: {:>5.1}%", b3_fixed.strategy_name, b3_fixed.actual_probes, b3_fixed.mean_rtt, b3_fixed.p95_rtt, b3_fixed.actionable_probes_pct);
-    println!("{:<28} -> Probes: {:>5.1} | Mean RTT: {:>6.1}ms | p95: {:>6.1}ms | Actionable: {:>5.1}%", b3_heur.strategy_name, b3_heur.actual_probes, b3_heur.mean_rtt, b3_heur.p95_rtt, b3_heur.actionable_probes_pct);
-    println!("{:<28} -> Probes: {:>5.1} | Mean RTT: {:>6.1}ms | p95: {:>6.1}ms | Actionable: {:>5.1}%", b3_zero.strategy_name, b3_zero.actual_probes, b3_zero.mean_rtt, b3_zero.p95_rtt, b3_zero.actionable_probes_pct);
+    let b3_fixed = points
+        .iter()
+        .find(|p| p.strategy_name.contains("Fixed") && p.param_label.contains("20"))
+        .unwrap();
+    let b3_heur = points
+        .iter()
+        .find(|p| p.strategy_name.contains("Adaptive") && p.param_label.contains("15"))
+        .unwrap();
+    let b3_zero = points
+        .iter()
+        .find(|p| p.strategy_name.contains("ZERO") && p.param_label.contains("5ms"))
+        .unwrap();
+    println!(
+        "{:<28} -> Probes: {:>5.1} | Mean RTT: {:>6.1}ms | p95: {:>6.1}ms | Actionable: {:>5.1}%",
+        b3_fixed.strategy_name,
+        b3_fixed.actual_probes,
+        b3_fixed.mean_rtt,
+        b3_fixed.p95_rtt,
+        b3_fixed.actionable_probes_pct
+    );
+    println!(
+        "{:<28} -> Probes: {:>5.1} | Mean RTT: {:>6.1}ms | p95: {:>6.1}ms | Actionable: {:>5.1}%",
+        b3_heur.strategy_name,
+        b3_heur.actual_probes,
+        b3_heur.mean_rtt,
+        b3_heur.p95_rtt,
+        b3_heur.actionable_probes_pct
+    );
+    println!(
+        "{:<28} -> Probes: {:>5.1} | Mean RTT: {:>6.1}ms | p95: {:>6.1}ms | Actionable: {:>5.1}%",
+        b3_zero.strategy_name,
+        b3_zero.actual_probes,
+        b3_zero.mean_rtt,
+        b3_zero.p95_rtt,
+        b3_zero.actionable_probes_pct
+    );
 
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
 }

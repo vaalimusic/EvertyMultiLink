@@ -216,7 +216,8 @@ impl ZeroShadowMode {
 
             // Confidence estimation based on sample count and jitter
             let sample_weight = (node.quality.samples as f64) / (node.quality.samples as f64 + 4.0);
-            let jitter_ratio = (node.quality.jitter_ms / (base_lat + node.quality.jitter_ms + 1.0)).clamp(0.0, 0.8);
+            let jitter_ratio = (node.quality.jitter_ms / (base_lat + node.quality.jitter_ms + 1.0))
+                .clamp(0.0, 0.8);
             let confidence = (sample_weight * (1.0 - jitter_ratio)).clamp(0.1, 0.98);
 
             evaluations.push(CandidateEval {
@@ -242,13 +243,23 @@ impl ZeroShadowMode {
 
         let best = &evaluations[best_idx];
         let reason = if !best.global_healthy {
-            format!("Fallback: all candidate servers degraded, selecting least-penalized ({:.0}ms)", best.expected_cost_ms)
+            format!(
+                "Fallback: all candidate servers degraded, selecting least-penalized ({:.0}ms)",
+                best.expected_cost_ms
+            )
         } else if !best.context_healthy {
             format!("Context-restricted: chosen node operates under penalty for context {ctx}")
         } else if best.confidence > 0.7 {
-            format!("High-confidence optimum: expected latency {:.0}ms (rel={:.0}%)", best.expected_cost_ms, best.reliability * 100.0)
+            format!(
+                "High-confidence optimum: expected latency {:.0}ms (rel={:.0}%)",
+                best.expected_cost_ms,
+                best.reliability * 100.0
+            )
         } else {
-            format!("Exploratory/low-sample choice: expected cost {:.0}ms", best.expected_cost_ms)
+            format!(
+                "Exploratory/low-sample choice: expected cost {:.0}ms",
+                best.expected_cost_ms
+            )
         };
 
         Some(ZeroRecommendation {
@@ -289,7 +300,10 @@ impl ZeroShadowMode {
             self.global_cooldown.insert(server.to_string(), 0);
         } else {
             // Failure in context `ctx`
-            let fails = self.consecutive_context_failures.entry(key.clone()).or_insert(0);
+            let fails = self
+                .consecutive_context_failures
+                .entry(key.clone())
+                .or_insert(0);
             *fails += 1;
 
             self.recent_failed_contexts
@@ -300,7 +314,11 @@ impl ZeroShadowMode {
             // 1. Context-level circuit breaker
             if *fails >= CB_STREAK_TO_BENCH {
                 let cur = self.context_cooldown.get(&key).copied().unwrap_or(0);
-                let next = if cur == 0 { CB_BENCH_BASE } else { (cur * 2).min(CB_BENCH_MAX) };
+                let next = if cur == 0 {
+                    CB_BENCH_BASE
+                } else {
+                    (cur * 2).min(CB_BENCH_MAX)
+                };
                 self.context_cooldown.insert(key.clone(), next);
                 self.context_bench_timer.insert(key, next);
                 *fails = 0;
@@ -315,10 +333,15 @@ impl ZeroShadowMode {
 
             if distinct >= DUAL_DISTINCT_CONTEXTS_FOR_GLOBAL {
                 let cur_g = self.global_cooldown.get(server).copied().unwrap_or(0);
-                let next_g = if cur_g == 0 { CB_BENCH_BASE } else { (cur_g * 2).min(CB_BENCH_MAX) };
+                let next_g = if cur_g == 0 {
+                    CB_BENCH_BASE
+                } else {
+                    (cur_g * 2).min(CB_BENCH_MAX)
+                };
                 self.global_cooldown.insert(server.to_string(), next_g);
                 self.global_bench_timer.insert(server.to_string(), next_g);
-                self.recent_failed_contexts.insert(server.to_string(), HashSet::new());
+                self.recent_failed_contexts
+                    .insert(server.to_string(), HashSet::new());
             }
         }
 
@@ -361,8 +384,16 @@ impl ZeroShadowMode {
             }
         }
 
-        let agreement_pct = if total > 0 { 100.0 * agreements as f64 / total as f64 } else { 0.0 };
-        let mi_succ_pct = if total > 0 { 100.0 * mi_succ as f64 / total as f64 } else { 0.0 };
+        let agreement_pct = if total > 0 {
+            100.0 * agreements as f64 / total as f64
+        } else {
+            0.0
+        };
+        let mi_succ_pct = if total > 0 {
+            100.0 * mi_succ as f64 / total as f64
+        } else {
+            0.0
+        };
         let mean_latency = if self.decision_count > 0 {
             self.total_decision_nanos / self.decision_count as u128
         } else {
@@ -370,7 +401,11 @@ impl ZeroShadowMode {
         };
 
         let active_g = self.global_bench_timer.values().filter(|&&t| t > 0).count();
-        let active_c = self.context_bench_timer.values().filter(|&&t| t > 0).count();
+        let active_c = self
+            .context_bench_timer
+            .values()
+            .filter(|&&t| t > 0)
+            .count();
 
         ZeroShadowSummary {
             enabled: self.enabled,

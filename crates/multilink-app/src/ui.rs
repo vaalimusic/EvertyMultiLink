@@ -165,8 +165,14 @@ impl Canvas<'_> {
             44.0,
             24.0,
             if on {
-                if enabled { ACCENT } else { ACCENT.mix(PANEL, 0.5) }
-            } else { LINE },
+                if enabled {
+                    ACCENT
+                } else {
+                    ACCENT.mix(PANEL, 0.5)
+                }
+            } else {
+                LINE
+            },
             12.0,
         );
         self.rect(
@@ -265,7 +271,9 @@ impl Canvas<'_> {
             | Action::Language
             | Action::SelectLanguage(_)
             | Action::HelpSection(_) => true,
-            Action::OpenAboutSite | Action::OpenGitHub | Action::OpenDonate => true,
+            Action::OpenAboutSite | Action::OpenGitHub | Action::OpenDonate | Action::CopyProxy => {
+                true
+            }
             Action::ShareNode(_) | Action::ShareSubscription(_) => true,
             Action::OpenLanSync | Action::CopyQrContent => !self.busy,
             Action::RankServers => true,
@@ -279,7 +287,11 @@ impl Canvas<'_> {
             | Action::LockPin
             | Action::CheckUpdate
             | Action::OpenUpdateLink => true,
-            Action::Connect | Action::Close | Action::Paste | Action::Submit => !self.busy,
+            Action::Connect
+            | Action::Close
+            | Action::Paste
+            | Action::ChooseApplication
+            | Action::Submit => !self.busy,
             Action::SelectRuleTarget(_) | Action::TargetPage(_) => !self.busy,
             Action::RefreshSubscription(_) => !self.busy,
             Action::ExportSettings | Action::ImportSettings => !self.busy,
@@ -405,7 +417,14 @@ fn draw_qr(c: &mut Canvas<'_>, x: f64, y: f64, size: f64, data: &str) {
                     if code[(cx, cy)] == qrcode::Color::Dark {
                         let px = x + padding + cx as f64 * cell;
                         let py = y + padding + cy as f64 * cell;
-                        c.rect(px, py, cell.ceil(), cell.ceil(), Color::rgba(0, 0, 0, 255), 0.0);
+                        c.rect(
+                            px,
+                            py,
+                            cell.ceil(),
+                            cell.ceil(),
+                            Color::rgba(0, 0, 0, 255),
+                            0.0,
+                        );
                     }
                 }
             }
@@ -496,7 +515,11 @@ impl App {
         } else {
             None
         };
-        let rule_targets = if self.modal.as_ref().is_some_and(|modal| *modal != Modal::Import) {
+        let rule_targets = if self
+            .modal
+            .as_ref()
+            .is_some_and(|modal| *modal != Modal::Import)
+        {
             self.rule_targets()
         } else {
             Vec::new()
@@ -1124,14 +1147,7 @@ impl App {
                     TEXT,
                     true,
                 );
-                c.button(
-                    w - 159.0,
-                    128.0,
-                    125.0,
-                    "+ Добавить",
-                    Action::Import,
-                    true,
-                );
+                c.button(w - 159.0, 128.0, 125.0, "+ Добавить", Action::Import, true);
                 c.button(
                     w - 292.0,
                     128.0,
@@ -1211,14 +1227,7 @@ impl App {
                     MUTED,
                     false,
                 );
-                c.button(
-                    w - 159.0,
-                    149.0,
-                    125.0,
-                    "+ Добавить",
-                    Action::Import,
-                    true,
-                );
+                c.button(w - 159.0, 149.0, 125.0, "+ Добавить", Action::Import, true);
                 c.button(
                     w - 292.0,
                     149.0,
@@ -1350,6 +1359,25 @@ impl App {
                         .access
                         .as_ref()
                         .is_some_and(|a| a.subscription_id == source.id);
+                    if let Some(expiry) = source.expires_at {
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs();
+                        let label = if expiry <= now {
+                            "Срок истёк".into()
+                        } else {
+                            format!("Осталось дней: {}", (expiry - now).div_ceil(86400))
+                        };
+                        c.text(
+                            x + width - 225.0,
+                            y + 65.0,
+                            &label,
+                            12.0,
+                            if expiry <= now { MUTED } else { ACCENT },
+                            false,
+                        );
+                    }
                     let (label, action) = if managed {
                         ("Мой доступ", Action::Nav(Page::Access))
                     } else {
@@ -1429,7 +1457,11 @@ impl App {
                 c.text(
                     x + 28.0,
                     455.0,
-                    "Rust + EvertyUI · сетевое ядро Mihomo · Windows, Android & TV",
+                    if cfg!(target_os = "macos") {
+                        "Rust + EvertyUI · сетевое ядро Mihomo · macOS"
+                    } else {
+                        "Rust + EvertyUI · сетевое ядро Mihomo · Windows, Android & TV"
+                    },
                     12.0,
                     MUTED,
                     false,
@@ -1681,17 +1713,37 @@ impl App {
                 let scroll_y = self.offset as f64 * 35.0;
                 let clip_top = 115.0;
                 let clip_bottom = (h - 75.0).max(clip_top + 10.0);
-                c.b.push_clip(LogicalRect::from_xywh(0.0, clip_top, w, clip_bottom - clip_top));
+                c.b.push_clip(LogicalRect::from_xywh(
+                    0.0,
+                    clip_top,
+                    w,
+                    clip_bottom - clip_top,
+                ));
 
                 // Card 1: Network Connection Modes
                 let y1 = 125.0 - scroll_y;
                 c.card(x, y1, card_w, 212.0);
                 c.text(x + 24.0, y1 + 15.0, "Подключение", 17.0, TEXT, true);
-                c.text(x + 24.0, y1 + 44.0, "Системный прокси", 14.0, TEXT, true);
+                c.text(
+                    x + 24.0,
+                    y1 + 44.0,
+                    if cfg!(target_os = "macos") {
+                        "Системный прокси"
+                    } else {
+                        "Системный прокси"
+                    },
+                    14.0,
+                    TEXT,
+                    true,
+                );
                 c.text(
                     x + 24.0,
                     y1 + 65.0,
-                    "Для браузеров и приложений с поддержкой прокси.",
+                    if cfg!(target_os = "macos") {
+                        "Автоматически настраивать прокси браузеров и приложений."
+                    } else {
+                        "Для браузеров и приложений с поддержкой прокси."
+                    },
                     11.0,
                     MUTED,
                     false,
@@ -1707,14 +1759,30 @@ impl App {
                 c.text(
                     x + 24.0,
                     y1 + 121.0,
-                    "Перехват сетевого стека (требуются права администратора).",
+                    if cfg!(target_os = "macos") {
+                        "Весь трафик Mac, включая DNS. macOS запросит доступ при подключении."
+                    } else {
+                        "Перехват сетевого стека (требуются права администратора)."
+                    },
                     11.0,
                     MUTED,
                     false,
                 );
-                c.toggle(x + card_w - 68.0, y1 + 97.0, self.settings.tun, Action::ToggleTun);
+                c.toggle(
+                    x + card_w - 68.0,
+                    y1 + 97.0,
+                    self.settings.tun,
+                    Action::ToggleTun,
+                );
                 c.line(x + 24.0, y1 + 144.0, card_w - 48.0);
-                c.text(x + 24.0, y1 + 156.0, "Режим «Только правила»", 14.0, TEXT, true);
+                c.text(
+                    x + 24.0,
+                    y1 + 156.0,
+                    "Режим «Только правила»",
+                    14.0,
+                    TEXT,
+                    true,
+                );
                 c.text(
                     x + 24.0,
                     y1 + 177.0,
@@ -1737,7 +1805,11 @@ impl App {
                 c.text(
                     x + 24.0,
                     y2 + 44.0,
-                    "Запускать вместе с Windows",
+                    if cfg!(target_os = "macos") {
+                        "Запускать при входе в macOS"
+                    } else {
+                        "Запускать вместе с Windows"
+                    },
                     14.0,
                     TEXT,
                     true,
@@ -1745,7 +1817,11 @@ impl App {
                 c.text(
                     x + 24.0,
                     y2 + 65.0,
-                    "Приложение запускается в фоновом режиме в системном трее.",
+                    if cfg!(target_os = "macos") {
+                        "Работать в фоне со значком в строке меню."
+                    } else {
+                        "Приложение запускается в фоновом режиме в системном трее."
+                    },
                     11.0,
                     MUTED,
                     false,
@@ -1784,7 +1860,14 @@ impl App {
                 let y3 = 509.0 - scroll_y;
                 c.card(x, y3, card_w, 70.0);
                 let pin_active = self.settings.pin_code.is_some();
-                c.text(x + 24.0, y3 + 15.0, "Защита настроек PIN-кодом", 14.0, TEXT, true);
+                c.text(
+                    x + 24.0,
+                    y3 + 15.0,
+                    "Защита настроек PIN-кодом",
+                    14.0,
+                    TEXT,
+                    true,
+                );
                 c.text(
                     x + 24.0,
                     y3 + 39.0,
@@ -1829,8 +1912,16 @@ impl App {
                         x + card_w - 98.0,
                         y3 + 16.0,
                         84.0,
-                        if self.pin_unlocked { "Заблокир." } else { "Открыть" },
-                        if self.pin_unlocked { Action::LockPin } else { Action::OpenSetPin },
+                        if self.pin_unlocked {
+                            "Заблокир."
+                        } else {
+                            "Открыть"
+                        },
+                        if self.pin_unlocked {
+                            Action::LockPin
+                        } else {
+                            Action::OpenSetPin
+                        },
                         false,
                     );
                 }
@@ -1885,7 +1976,11 @@ impl App {
                     y5 + 39.0,
                     &update_sub,
                     11.0,
-                    if self.update_available.is_some() { ACCENT } else { MUTED },
+                    if self.update_available.is_some() {
+                        ACCENT
+                    } else {
+                        MUTED
+                    },
                     false,
                 );
                 if let Some(ver) = &self.update_available {
@@ -1902,7 +1997,11 @@ impl App {
                         x + card_w - 130.0,
                         y5 + 16.0,
                         116.0,
-                        if self.checking_update { "Проверка…" } else { "Проверить" },
+                        if self.checking_update {
+                            "Проверка…"
+                        } else {
+                            "Проверить"
+                        },
                         Action::CheckUpdate,
                         false,
                     );
@@ -1920,12 +2019,25 @@ impl App {
                     ACCENT,
                     true,
                 );
-                c.icon_button(x + card_w - 52.0, y6 + 13.0, 14, Action::Language, "Изменить язык");
+                c.icon_button(
+                    x + card_w - 52.0,
+                    y6 + 13.0,
+                    14,
+                    Action::Language,
+                    "Изменить язык",
+                );
 
                 // Card 7: Backup & Restore
                 let y7 = 831.0 - scroll_y;
                 c.card(x, y7, card_w, 70.0);
-                c.text(x + 24.0, y7 + 15.0, "Резервная копия настроек", 14.0, TEXT, true);
+                c.text(
+                    x + 24.0,
+                    y7 + 15.0,
+                    "Резервная копия настроек",
+                    14.0,
+                    TEXT,
+                    true,
+                );
                 c.text(
                     x + 24.0,
                     y7 + 39.0,
@@ -1958,6 +2070,8 @@ impl App {
                     y8 + 8.0,
                     if self.connected {
                         "Перед изменением сетевого режима отключитесь от VPN."
+                    } else if cfg!(target_os = "macos") {
+                        "TUN защищает весь Mac. Системный прокси можно использовать отдельно."
                     } else {
                         "Режимы TUN и прокси можно включать вместе."
                     },
@@ -2027,7 +2141,12 @@ impl App {
         }
         if self.modal.is_none() {
             if c.tooltip.is_none() {
-                if let Some((rect, hint)) = c.disabled_hits.iter().rev().find(|(r, _)| r.contains(self.pointer)) {
+                if let Some((rect, hint)) = c
+                    .disabled_hits
+                    .iter()
+                    .rev()
+                    .find(|(r, _)| r.contains(self.pointer))
+                {
                     c.tooltip = Some((*rect, hint.clone()));
                 }
             }
@@ -2045,14 +2164,33 @@ impl App {
             };
             let my = (h - modal_height) / 2.0;
             c.card(mx, my, 660.0, modal_height);
-            if let Modal::ShareQr { title, content, caption } = modal {
+            if let Modal::ShareQr {
+                title,
+                content,
+                caption,
+            } = modal
+            {
                 c.text(mx + 28.0, my + 24.0, title, 21.0, TEXT, true);
                 c.text(mx + 28.0, my + 54.0, caption, 12.0, MUTED, false);
                 draw_qr(&mut c, mx + 28.0, my + 84.0, 240.0, content);
-                c.text(mx + 290.0, my + 94.0, "ССЫЛКА ДЛЯ ПОДКЛЮЧЕНИЯ:", 11.0, MUTED, true);
+                c.text(
+                    mx + 290.0,
+                    my + 94.0,
+                    "ССЫЛКА ДЛЯ ПОДКЛЮЧЕНИЯ:",
+                    11.0,
+                    MUTED,
+                    true,
+                );
                 c.card(mx + 290.0, my + 115.0, 342.0, 110.0);
                 c.b.push_clip(LogicalRect::from_xywh(mx + 300.0, my + 125.0, 322.0, 90.0));
-                c.raw_text(mx + 300.0, my + 125.0, &shortened(content, 180), 12.0, TEXT, false);
+                c.raw_text(
+                    mx + 300.0,
+                    my + 125.0,
+                    &shortened(content, 180),
+                    12.0,
+                    TEXT,
+                    false,
+                );
                 let _ = c.b.pop_clip();
                 c.button(
                     mx + 290.0,
@@ -2075,13 +2213,41 @@ impl App {
                 return c.b.finish();
             }
             if let Modal::LanSync { url, pin } = modal {
-                c.text(mx + 28.0, my + 24.0, "Принять по QR / Wi-Fi", 21.0, TEXT, true);
-                c.text(mx + 28.0, my + 54.0, "Отсканируйте камерой смартфона или перейдите в браузере:", 12.0, MUTED, false);
+                c.text(
+                    mx + 28.0,
+                    my + 24.0,
+                    "Принять по QR / Wi-Fi",
+                    21.0,
+                    TEXT,
+                    true,
+                );
+                c.text(
+                    mx + 28.0,
+                    my + 54.0,
+                    "Отсканируйте камерой смартфона или перейдите в браузере:",
+                    12.0,
+                    MUTED,
+                    false,
+                );
                 draw_qr(&mut c, mx + 28.0, my + 84.0, 240.0, url);
-                c.text(mx + 290.0, my + 94.0, "КОД ПОДТВЕРЖДЕНИЯ (PIN):", 11.0, MUTED, true);
+                c.text(
+                    mx + 290.0,
+                    my + 94.0,
+                    "КОД ПОДТВЕРЖДЕНИЯ (PIN):",
+                    11.0,
+                    MUTED,
+                    true,
+                );
                 c.rect(mx + 290.0, my + 114.0, 150.0, 42.0, SOFT, 8.0);
                 c.text(mx + 316.0, my + 122.0, pin, 24.0, ACCENT, true);
-                c.text(mx + 290.0, my + 175.0, "АДРЕС ВЕБ-ИНТЕРФЕЙСА:", 11.0, MUTED, true);
+                c.text(
+                    mx + 290.0,
+                    my + 175.0,
+                    "АДРЕС ВЕБ-ИНТЕРФЕЙСА:",
+                    11.0,
+                    MUTED,
+                    true,
+                );
                 c.text(mx + 290.0, my + 195.0, url, 13.0, TEXT, false);
                 c.button(
                     mx + 290.0,
@@ -2091,7 +2257,14 @@ impl App {
                     Action::CopyQrContent,
                     false,
                 );
-                c.text(mx + 290.0, my + 295.0, "Ожидание отправки со смартфона или браузера…", 12.0, MUTED, false);
+                c.text(
+                    mx + 290.0,
+                    my + 295.0,
+                    "Ожидание отправки со смартфона или браузера…",
+                    12.0,
+                    MUTED,
+                    false,
+                );
                 c.button(
                     mx + 483.0,
                     my + 360.0,
@@ -2412,6 +2585,8 @@ impl App {
                         "Например: Основная подписка"
                     } else if import {
                         "https://provider.example/subscription/…"
+                    } else if process && cfg!(target_os = "macos") {
+                        "Safari или /Applications/…/Contents/MacOS/…"
                     } else if process {
                         "program.exe"
                     } else {
@@ -2425,8 +2600,16 @@ impl App {
                     mx + 28.0,
                     my + 177.0,
                     142.0,
-                    "Вставить",
-                    Action::Paste,
+                    if process && cfg!(target_os = "macos") {
+                        "Выбрать .app…"
+                    } else {
+                        "Вставить"
+                    },
+                    if process && cfg!(target_os = "macos") {
+                        Action::ChooseApplication
+                    } else {
+                        Action::Paste
+                    },
                     false,
                 );
             }
@@ -2449,6 +2632,8 @@ impl App {
                 my + 188.0,
                 if ru {
                     "Локальный набор MetaCubeX"
+                } else if cfg!(target_os = "macos") {
+                    "⌘V · ⌘A · Enter · Esc"
                 } else {
                     "Ctrl+V · Ctrl+A · Enter · Esc"
                 },
@@ -2755,12 +2940,7 @@ fn server_list(
             false,
         );
         let name_clip_w = (col_delay - (x + 68.0) - 12.0).max(10.0);
-        c.b.push_clip(LogicalRect::from_xywh(
-            x + 68.0,
-            ry,
-            name_clip_w,
-            55.0,
-        ));
+        c.b.push_clip(LogicalRect::from_xywh(x + 68.0, ry, name_clip_w, 55.0));
         c.raw_text(
             x + 68.0,
             ry + 6.0,
@@ -2885,6 +3065,7 @@ mod tests {
     #[test]
     fn compact_controls_and_country_picker_are_available_without_a_window() {
         let mut app = App::new(None);
+        app.compact = true;
         app.settings.nodes = multilink_core::parse_subscription(
             "vless://00000000-0000-4000-8000-000000000001@example.invalid:443#DE-01",
         )

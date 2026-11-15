@@ -7,7 +7,7 @@ exclude = ["EvertyUI"]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "system-proxy", "socks"] }
 
 # Software rasterization and font shaping must also be fast under `cargo run`.
 [profile.dev]

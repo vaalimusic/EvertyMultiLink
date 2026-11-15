@@ -64,8 +64,13 @@ fn start_mihomo_for_node(node: &Node) -> Result<TestEngine, String> {
 
     let binary = multilink_mihomo::binary();
     let mut cmd = Command::new(binary);
-    cmd.arg("-d").arg(&dir).arg("-f").arg(&config_path)
-        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    cmd.arg("-d")
+        .arg(&dir)
+        .arg("-f")
+        .arg(&config_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -113,7 +118,8 @@ fn measure_proxy_connect_handshake(proxy_port: u16, target_host: &str) -> Option
     let mut stream = TcpStream::connect_timeout(
         &format!("127.0.0.1:{proxy_port}").parse().unwrap(),
         Duration::from_secs(3),
-    ).ok()?;
+    )
+    .ok()?;
 
     let req = format!("CONNECT {target_host}:443 HTTP/1.1\r\nHost: {target_host}:443\r\n\r\n");
     stream.write_all(req.as_bytes()).ok()?;
@@ -130,11 +136,15 @@ fn measure_proxy_connect_handshake(proxy_port: u16, target_host: &str) -> Option
 }
 
 fn main() {
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
     println!("COLD VS WARM CONNECTION VERIFICATION (100 PAIRED SAMPLES)");
     println!("Target: www.gstatic.com/generate_204 via NL #1 (10 Gbit)");
     println!("Empirically Measuring Physical Decomposition & Keep-Alive Reuse");
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
 
     let settings: Settings = match multilink_platform::load() {
         Ok(Some(bytes)) => serde_json::from_slice(&bytes).unwrap_or_default(),
@@ -153,11 +163,16 @@ fn main() {
     println!("Selected primary node: {}", nl_node.name);
 
     // 1. Measure raw TCP connect to the VPS itself
-    let vps_server = nl_node.proxy.get(&serde_yaml::Value::String("server".into()))
+    let vps_server = nl_node
+        .proxy
+        .get(&serde_yaml::Value::String("server".into()))
         .and_then(|v| v.as_str())
         .unwrap_or("nl1.gofizzin.com");
 
-    print!("Measuring raw TCP handshake to VPS ({}:443)... ", vps_server);
+    print!(
+        "Measuring raw TCP handshake to VPS ({}:443)... ",
+        vps_server
+    );
     let mut raw_vps_rtts = Vec::new();
     for _ in 0..15 {
         let t0 = Instant::now();
@@ -194,7 +209,9 @@ fn main() {
     println!("Median Tunnel Setup: {} ms", median_tunnel_setup);
 
     // 4. Run 100 paired Cold vs Warm requests
-    println!("\nExecuting 100 Paired Cold / Warm Requests (alternating with connection teardown)...");
+    println!(
+        "\nExecuting 100 Paired Cold / Warm Requests (alternating with connection teardown)..."
+    );
     let url = "https://www.gstatic.com/generate_204";
     let iterations = 100;
 
@@ -250,31 +267,77 @@ fn main() {
     let mean_overhead = overheads.iter().sum::<u64>() as f64 / overheads.len() as f64;
 
     println!("\n=========================================================================================");
-    println!("STATISTICAL SUMMARY ACROSS {} VERIFIED SAMPLES", cold_totals.len());
-    println!("=========================================================================================");
+    println!(
+        "STATISTICAL SUMMARY ACROSS {} VERIFIED SAMPLES",
+        cold_totals.len()
+    );
+    println!(
+        "========================================================================================="
+    );
     println!("Metric                 Mean       p50       p95       p99       Min       Max");
-    println!("-----------------------------------------------------------------------------------------");
     println!(
-        "{:<20} {:>7.1}ms {:>7}ms {:>7}ms {:>7}ms {:>7}ms {:>7}ms",
-        "Cold Request Total", mean_cold, cold_totals[p50_idx], cold_totals[p95_idx], cold_totals[p99_idx], cold_totals[0], cold_totals[cold_totals.len() - 1]
+        "-----------------------------------------------------------------------------------------"
     );
     println!(
         "{:<20} {:>7.1}ms {:>7}ms {:>7}ms {:>7}ms {:>7}ms {:>7}ms",
-        "Warm Request Total", mean_warm, warm_totals[p50_idx], warm_totals[p95_idx], warm_totals[p99_idx], warm_totals[0], warm_totals[warm_totals.len() - 1]
+        "Cold Request Total",
+        mean_cold,
+        cold_totals[p50_idx],
+        cold_totals[p95_idx],
+        cold_totals[p99_idx],
+        cold_totals[0],
+        cold_totals[cold_totals.len() - 1]
     );
     println!(
         "{:<20} {:>7.1}ms {:>7}ms {:>7}ms {:>7}ms {:>7}ms {:>7}ms",
-        "Connection Overhead", mean_overhead, overheads[p50_idx], overheads[p95_idx], overheads[p99_idx], overheads[0], overheads[overheads.len() - 1]
+        "Warm Request Total",
+        mean_warm,
+        warm_totals[p50_idx],
+        warm_totals[p95_idx],
+        warm_totals[p99_idx],
+        warm_totals[0],
+        warm_totals[warm_totals.len() - 1]
     );
-    println!("-----------------------------------------------------------------------------------------");
+    println!(
+        "{:<20} {:>7.1}ms {:>7}ms {:>7}ms {:>7}ms {:>7}ms {:>7}ms",
+        "Connection Overhead",
+        mean_overhead,
+        overheads[p50_idx],
+        overheads[p95_idx],
+        overheads[p99_idx],
+        overheads[0],
+        overheads[overheads.len() - 1]
+    );
+    println!(
+        "-----------------------------------------------------------------------------------------"
+    );
 
-    println!("\nPHYSICAL BREAKDOWN OF THE {}ms COLD LATENCY:", cold_totals[p50_idx]);
-    println!("  1. Raw TCP to VPS:                     ~{} ms", median_vps_tcp);
-    println!("  2. VLESS + Remote TCP Handshake:       ~{} ms (Mihomo CONNECT)", median_tunnel_setup);
-    println!("  3. End-to-End TLS with target:         ~{} ms (diff: tunnel setup to first payload)", cold_totals[p50_idx].saturating_sub(median_tunnel_setup + warm_totals[p50_idx]));
-    println!("  4. Pure Warm Application RTT:          ~{} ms (Warm Request)", warm_totals[p50_idx]);
-    println!("  Ratio of Connection Setup to Request:   {:.1}% setup vs {:.1}% payload",
-        100.0 * mean_overhead / mean_cold, 100.0 * mean_warm / mean_cold
+    println!(
+        "\nPHYSICAL BREAKDOWN OF THE {}ms COLD LATENCY:",
+        cold_totals[p50_idx]
     );
-    println!("=========================================================================================");
+    println!(
+        "  1. Raw TCP to VPS:                     ~{} ms",
+        median_vps_tcp
+    );
+    println!(
+        "  2. VLESS + Remote TCP Handshake:       ~{} ms (Mihomo CONNECT)",
+        median_tunnel_setup
+    );
+    println!(
+        "  3. End-to-End TLS with target:         ~{} ms (diff: tunnel setup to first payload)",
+        cold_totals[p50_idx].saturating_sub(median_tunnel_setup + warm_totals[p50_idx])
+    );
+    println!(
+        "  4. Pure Warm Application RTT:          ~{} ms (Warm Request)",
+        warm_totals[p50_idx]
+    );
+    println!(
+        "  Ratio of Connection Setup to Request:   {:.1}% setup vs {:.1}% payload",
+        100.0 * mean_overhead / mean_cold,
+        100.0 * mean_warm / mean_cold
+    );
+    println!(
+        "========================================================================================="
+    );
 }

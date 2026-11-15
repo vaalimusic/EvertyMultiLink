@@ -189,7 +189,14 @@ struct ToleranceStats {
 }
 
 impl ToleranceStats {
-    fn record(&mut self, ok: bool, latency: Option<u64>, switched: bool, agreed_with_zero: bool, nanos: u128) {
+    fn record(
+        &mut self,
+        ok: bool,
+        latency: Option<u64>,
+        switched: bool,
+        agreed_with_zero: bool,
+        nanos: u128,
+    ) {
         self.total_connections += 1;
         self.decision_nanos += nanos;
         if switched {
@@ -213,11 +220,17 @@ impl ToleranceStats {
     }
 
     fn mean_rtt(&self) -> f64 {
-        if self.rtts.is_empty() { 0.0 } else { self.rtts.iter().sum::<u64>() as f64 / self.rtts.len() as f64 }
+        if self.rtts.is_empty() {
+            0.0
+        } else {
+            self.rtts.iter().sum::<u64>() as f64 / self.rtts.len() as f64
+        }
     }
 
     fn percentiles(&mut self) -> (u64, u64, u64) {
-        if self.rtts.is_empty() { return (0, 0, 0); }
+        if self.rtts.is_empty() {
+            return (0, 0, 0);
+        }
         self.rtts.sort_unstable();
         let len = self.rtts.len() as f64;
         let p50 = self.rtts[((len * 0.50) as usize).min(self.rtts.len() - 1)];
@@ -227,21 +240,33 @@ impl ToleranceStats {
     }
 
     fn success_pct(&self) -> f64 {
-        if self.total_connections == 0 { 0.0 } else { 100.0 * self.first_successes as f64 / self.total_connections as f64 }
+        if self.total_connections == 0 {
+            0.0
+        } else {
+            100.0 * self.first_successes as f64 / self.total_connections as f64
+        }
     }
 
     fn switch_rate_pct(&self) -> f64 {
-        if self.total_connections == 0 { 0.0 } else { 100.0 * self.route_switches as f64 / self.total_connections as f64 }
+        if self.total_connections == 0 {
+            0.0
+        } else {
+            100.0 * self.route_switches as f64 / self.total_connections as f64
+        }
     }
 }
 
 fn main() {
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
     println!("MULTILINK SMART MODE: SYNTHETIC NETWORK SIMULATION (MONTE CARLO)");
     println!("Note: This is a synthetic stress simulation under stochastic jitter/outages, NOT live VPN servers.");
     println!("Tolerances tested: [20ms, 30ms, 50ms, 100ms] vs ZERO Shadow Mode");
     println!("30 Independent Evaluation Seeds | 3,000 tasks/seed (90,000 requests per setting)");
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
 
     let domains = [
         "api.github.com",
@@ -272,10 +297,10 @@ fn main() {
 
             // Candidate pool setup
             let mut nodes = vec![
-                create_node("Node-A", 42.0, 10.0, 0.98), // Fast, 10ms jitter
-                create_node("Node-B", 85.0, 8.0, 0.99),  // Medium
-                create_node("Node-C", 120.0, 12.0, 0.97),// Moderate
-                create_node("Node-D", 180.0, 5.0, 0.998),// Backup
+                create_node("Node-A", 42.0, 10.0, 0.98),  // Fast, 10ms jitter
+                create_node("Node-B", 85.0, 8.0, 0.99),   // Medium
+                create_node("Node-C", 120.0, 12.0, 0.97), // Moderate
+                create_node("Node-D", 180.0, 5.0, 0.998), // Backup
             ];
 
             let mut zero_shadow = ZeroShadowMode::new(true);
@@ -303,14 +328,28 @@ fn main() {
                 // L1 filter: available nodes
                 let available: Vec<&Node> = nodes
                     .iter()
-                    .filter(|n| l1_fail_counts.get(&(n.name.clone(), domain.to_string())).copied().unwrap_or(0) < 2)
+                    .filter(|n| {
+                        l1_fail_counts
+                            .get(&(n.name.clone(), domain.to_string()))
+                            .copied()
+                            .unwrap_or(0)
+                            < 2
+                    })
                     .collect();
 
-                let candidates = if available.is_empty() { nodes.iter().collect::<Vec<_>>() } else { available };
+                let candidates = if available.is_empty() {
+                    nodes.iter().collect::<Vec<_>>()
+                } else {
+                    available
+                };
 
                 // 1. Mihomo Smart Mode selection with candidate tolerance
                 let t0 = Instant::now();
-                let chosen = black_box(select_smart_mode_with_tolerance(&candidates, current_selected.as_deref(), tolerance_ms as f64));
+                let chosen = black_box(select_smart_mode_with_tolerance(
+                    &candidates,
+                    current_selected.as_deref(),
+                    tolerance_ms as f64,
+                ));
                 let decision_nanos = t0.elapsed().as_nanos();
 
                 let switched = match &current_selected {
@@ -357,7 +396,9 @@ fn main() {
 
     println!("\n=========================================================================================");
     println!("COMPARATIVE TOLERANCE SWEEP RESULTS (30 SEEDS, 90,000 REQUESTS PER SETTING)");
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
     println!("Tolerance    Mean RTT   p50 RTT   p95 RTT   p99 RTT   Success%   Reconnections  Flapping(Switches)   ZERO Agreement");
     println!("------------------------------------------------------------------------------------------------------------------");
 
@@ -378,5 +419,7 @@ fn main() {
             agreement_pct,
         );
     }
-    println!("=========================================================================================");
+    println!(
+        "========================================================================================="
+    );
 }

@@ -86,6 +86,13 @@ cargo run -p multilink-app
 .\installer\build.ps1
 ```
 
+#### macOS (первая сборка, ручной HTTP/SOCKS-прокси):
+```bash
+bash installer/build-macos.sh
+```
+Приложение `.app` со встроенным ядром и ZIP появятся в `artifacts/macos`.
+Сборка использует архитектуру текущего Mac. [Инструкция и ограничения macOS](docs/macos.md).
+
 #### Android:
 ```powershell
 cd android
@@ -158,6 +165,13 @@ cargo run -p multilink-app
 # Build Inno Setup installer
 .\installer\build.ps1
 ```
+
+#### macOS (initial build, manual HTTP/SOCKS proxy):
+```bash
+bash installer/build-macos.sh
+```
+The `.app` bundle with Mihomo and ZIP are written to `artifacts/macos` for the
+current Mac architecture. See [macOS instructions and limitations](docs/macos.md).
 
 #### Android Application:
 ```powershell

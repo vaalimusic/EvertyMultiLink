@@ -4,11 +4,15 @@ pub const COUNT: usize = 8;
 fn rows() -> &'static Vec<Vec<String>> {
     static ROWS: OnceLock<Vec<Vec<String>>> = OnceLock::new();
     ROWS.get_or_init(|| {
-        include_str!("../locales/help.tsv")
-            .lines()
-            .filter(|l| !l.is_empty())
-            .map(|l| l.split('\t').map(|s| s.replace("\\n", "\n")).collect())
-            .collect()
+        (if cfg!(target_os = "macos") {
+            include_str!("../locales/help-macos.tsv")
+        } else {
+            include_str!("../locales/help.tsv")
+        })
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(|l| l.split('\t').map(|s| s.replace("\\n", "\n")).collect())
+        .collect()
     })
 }
 pub fn section(language: Language, index: usize) -> (&'static str, &'static str) {

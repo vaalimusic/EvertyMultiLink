@@ -75,16 +75,36 @@ pub struct Node {
 }
 
 impl Node {
+    /// Android LAN sharing identifies an endpoint by server:port:uuid.
+    pub fn subscription_signature(&self) -> Option<String> {
+        Some(format!(
+            "{}:{}:{}",
+            self.proxy.get(Value::from("server"))?.as_str()?,
+            self.proxy.get(Value::from("port"))?.as_u64()?,
+            self.proxy.get(Value::from("uuid"))?.as_str()?
+        ))
+    }
     pub fn to_vless_uri(&self) -> Option<String> {
         let uuid = self.proxy.get(Value::from("uuid"))?.as_str()?;
         let server = self.proxy.get(Value::from("server"))?.as_str()?;
         let port = self.proxy.get(Value::from("port"))?.as_u64()?;
         let mut query = Vec::new();
-        if let Some(network) = self.proxy.get(Value::from("network")).and_then(Value::as_str) {
+        if let Some(network) = self
+            .proxy
+            .get(Value::from("network"))
+            .and_then(Value::as_str)
+        {
             query.push(format!("type={network}"));
         }
-        let tls = self.proxy.get(Value::from("tls")).and_then(Value::as_bool).unwrap_or(false);
-        let reality = self.proxy.get(Value::from("reality-opts")).and_then(Value::as_mapping);
+        let tls = self
+            .proxy
+            .get(Value::from("tls"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let reality = self
+            .proxy
+            .get(Value::from("reality-opts"))
+            .and_then(Value::as_mapping);
         if let Some(ro) = reality {
             query.push("security=reality".to_string());
             if let Some(pbk) = ro.get(Value::from("public-key")).and_then(Value::as_str) {
@@ -99,18 +119,31 @@ impl Node {
         } else if tls {
             query.push("security=tls".to_string());
         }
-        if let Some(sni) = self.proxy.get(Value::from("servername")).and_then(Value::as_str) {
+        if let Some(sni) = self
+            .proxy
+            .get(Value::from("servername"))
+            .and_then(Value::as_str)
+        {
             query.push(format!("sni={sni}"));
         }
-        if let Some(fp) = self.proxy.get(Value::from("client-fingerprint")).and_then(Value::as_str) {
+        if let Some(fp) = self
+            .proxy
+            .get(Value::from("client-fingerprint"))
+            .and_then(Value::as_str)
+        {
             query.push(format!("fp={fp}"));
         }
         if let Some(flow) = self.proxy.get(Value::from("flow")).and_then(Value::as_str) {
             query.push(format!("flow={flow}"));
         }
-        if let Some(ws) = self.proxy.get(Value::from("ws-opts")).and_then(Value::as_mapping) {
+        if let Some(ws) = self
+            .proxy
+            .get(Value::from("ws-opts"))
+            .and_then(Value::as_mapping)
+        {
             if let Some(path) = ws.get(Value::from("path")).and_then(Value::as_str) {
-                let encoded_path = url::form_urlencoded::byte_serialize(path.as_bytes()).collect::<String>();
+                let encoded_path =
+                    url::form_urlencoded::byte_serialize(path.as_bytes()).collect::<String>();
                 query.push(format!("path={encoded_path}"));
             }
         }
@@ -119,7 +152,8 @@ impl Node {
         } else {
             format!("?{}", query.join("&"))
         };
-        let encoded_name = url::form_urlencoded::byte_serialize(self.name.as_bytes()).collect::<String>();
+        let encoded_name =
+            url::form_urlencoded::byte_serialize(self.name.as_bytes()).collect::<String>();
         Some(format!("vless://{uuid}@{server}:{port}{q}#{encoded_name}"))
     }
 }
@@ -169,6 +203,8 @@ pub struct Settings {
     pub system_proxy: bool,
     #[serde(default)]
     pub tun: bool,
+    #[serde(default)]
+    pub macos_network_migrated: bool,
     pub rules: Vec<String>,
     #[serde(default)]
     pub rule_notes: std::collections::BTreeMap<String, String>,
@@ -195,7 +231,7 @@ fn default_smart_tolerance() -> u32 {
     100
 }
 fn default_system_proxy() -> bool {
-    true
+    !cfg!(target_os = "macos")
 }
 fn default_language() -> String {
     "system".into()
@@ -213,11 +249,10 @@ pub fn unavailable_route_targets(settings: &Settings) -> Vec<String> {
                     | "MODE-LATENCY"
                     | "MODE-STABLE"
                     | "MODE-BALANCE"
-            )
-                || settings
-                    .nodes
-                    .iter()
-                    .any(|n| n.enabled && server_route_target(&n.name) == target)
+            ) || settings
+                .nodes
+                .iter()
+                .any(|n| n.enabled && server_route_target(&n.name) == target)
                 || target
                     .strip_prefix("COUNTRY-")
                     .is_some_and(|code| countries.iter().any(|(id, _)| id == code));
@@ -264,8 +299,9 @@ impl Default for Settings {
             access: None,
             pending_activation: None,
             policy: Policy::default(),
-            system_proxy: true,
+            system_proxy: default_system_proxy(),
             tun: false,
+            macos_network_migrated: false,
             rules: Vec::new(),
             rule_notes: Default::default(),
             rule_groups: Vec::new(),
@@ -651,6 +687,8 @@ pub struct ImportReport {
     pub nodes: Vec<Node>,
     /// Only positions and static parser errors: never subscription credentials.
     pub skipped: Vec<String>,
+    /// Explicit compatibility changes applied to accepted nodes.
+    pub warnings: Vec<String>,
 }
 
 /// Mixed subscriptions can contain transports belonging to another engine.
@@ -661,6 +699,7 @@ pub fn import_subscription(input: &str) -> Result<ImportReport, String> {
             return Ok(ImportReport {
                 nodes,
                 skipped: Vec::new(),
+                warnings: Vec::new(),
             })
         }
         Err(error) if input.len() > 4 * 1024 * 1024 => return Err(error),
@@ -688,6 +727,7 @@ pub fn import_subscription(input: &str) -> Result<ImportReport, String> {
                 return parse_subscription(input).map(|nodes| ImportReport {
                     nodes,
                     skipped: Vec::new(),
+                    warnings: Vec::new(),
                 })
             }
         }
@@ -699,10 +739,19 @@ pub fn import_subscription(input: &str) -> Result<ImportReport, String> {
     let mut report = ImportReport {
         nodes: Vec::new(),
         skipped: Vec::new(),
+        warnings: Vec::new(),
     };
     for (i, line) in lines.iter().enumerate() {
-        match parse_uri(line) {
-            Ok(node) => report.nodes.push(node),
+        let converted = without_fm(line);
+        match parse_uri(converted.as_deref().unwrap_or(line)) {
+            Ok(node) => {
+                report.nodes.push(node);
+                if converted.is_some() {
+                    report
+                        .warnings
+                        .push(format!("Узел {}: импортирован без фрагментации FM", i + 1));
+                }
+            }
             Err(error) => report.skipped.push(format!("Узел {}: {error}", i + 1)),
         }
     }
@@ -717,6 +766,25 @@ pub fn import_subscription(input: &str) -> Result<ImportReport, String> {
         ));
     }
     Ok(report)
+}
+
+// Only the user-authorized FM setting is omitted. Unknown transports, TLS
+// options and all other unsupported settings still go through strict validation.
+fn without_fm(input: &str) -> Option<String> {
+    let mut uri = Url::parse(input).ok()?;
+    if uri.scheme() != "vless" || !uri.query_pairs().any(|(key, _)| key == "fm") {
+        return None;
+    }
+    let pairs: Vec<_> = uri
+        .query_pairs()
+        .filter(|(key, _)| key != "fm")
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect();
+    uri.set_query(None);
+    if !pairs.is_empty() {
+        uri.query_pairs_mut().extend_pairs(pairs);
+    }
+    Some(uri.into())
 }
 fn percent_decode(s: &str) -> String {
     // URL form decoding handles UTF-8 names without exposing credentials.
@@ -854,6 +922,8 @@ pub fn normalize_direct_rules(rules: &[String]) -> Result<Vec<String>, String> {
                 "IP-CIDR6",
                 "RULE-SET",
                 "PROCESS-NAME",
+                "PROCESS-PATH",
+                "PROCESS-PATH-WILDCARD",
             ]
             .contains(&parts[0])
         {
@@ -871,16 +941,59 @@ pub fn normalize_direct_rules(rules: &[String]) -> Result<Vec<String>, String> {
         }
         if parts[0] == "PROCESS-NAME" {
             let process = parts[1];
+            let mac_name = cfg!(target_os = "macos");
             if process.is_empty()
                 || process.len() > 128
-                || !process.to_ascii_lowercase().ends_with(".exe")
-                || !process
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+                || (mac_name
+                    && process
+                        .chars()
+                        .any(|c| c.is_control() || matches!(c, '/' | '\\' | ',' | '*')))
+                || (!mac_name
+                    && (!process.to_ascii_lowercase().ends_with(".exe")
+                        || !process
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))))
             {
-                return Err("Укажите имя приложения в формате program.exe".into());
+                return Err(if mac_name {
+                    "Укажите имя процесса, например Safari, или полный путь к приложению"
+                } else {
+                    "Укажите имя приложения в формате program.exe"
+                }
+                .into());
             }
-            let canonical = format!("PROCESS-NAME,{},{}", process.to_ascii_lowercase(), target);
+            let process = if mac_name && !process.to_ascii_lowercase().ends_with(".exe") {
+                process.to_owned()
+            } else {
+                process.to_ascii_lowercase()
+            };
+            let canonical = format!("PROCESS-NAME,{process},{target}");
+            if seen.insert(rule_key(&canonical)) {
+                result.push(canonical);
+            }
+            continue;
+        }
+        if matches!(parts[0], "PROCESS-PATH" | "PROCESS-PATH-WILDCARD") {
+            let path = parts[1];
+            let wildcard = parts[0] == "PROCESS-PATH-WILDCARD";
+            let checked = if wildcard {
+                path.strip_suffix('*')
+                    .ok_or("Некорректный путь приложения")?
+            } else {
+                path
+            };
+            if !std::path::Path::new(path).is_absolute()
+                || path.len() > 4096
+                || checked
+                    .chars()
+                    .any(|c| c.is_control() || matches!(c, ',' | '*' | '?' | '[' | ']'))
+                || (wildcard && !checked.ends_with(".app/Contents/"))
+                || std::path::Path::new(path)
+                    .components()
+                    .any(|c| matches!(c, std::path::Component::ParentDir))
+            {
+                return Err("Укажите полный путь к исполняемому файлу приложения".into());
+            }
+            let canonical = format!("{},{path},{target}", parts[0]);
             if seen.insert(rule_key(&canonical)) {
                 result.push(canonical);
             }
@@ -898,7 +1011,7 @@ pub fn normalize_direct_rules(rules: &[String]) -> Result<Vec<String>, String> {
     // An explicit site exception takes precedence over broad country presets,
     // regardless of the order in which the user added them.
     result.sort_by_key(|rule| {
-        if rule.starts_with("PROCESS-NAME,") {
+        if rule.starts_with("PROCESS-") {
             0
         } else if rule.starts_with("RULE-SET,RU-SITES,") {
             2
@@ -927,7 +1040,19 @@ pub fn rules_from_input(input: &str, process: bool, target: &str) -> Result<Vec<
     }
     let mut rules = Vec::new();
     for value in values {
-        let rule = if process {
+        let rule = if process
+            && std::path::Path::new(value).is_absolute()
+            && value.trim_end_matches('/').ends_with(".app")
+        {
+            format!(
+                "PROCESS-PATH-WILDCARD,{}/Contents/*,{target}",
+                value.trim_end_matches('/')
+            )
+        } else if process && value.ends_with(".app/Contents/*") {
+            format!("PROCESS-PATH-WILDCARD,{value},{target}")
+        } else if process && std::path::Path::new(value).is_absolute() {
+            format!("PROCESS-PATH,{value},{target}")
+        } else if process {
             format!("PROCESS-NAME,{value},{target}")
         } else {
             let base = direct_rule(value)?;
@@ -936,6 +1061,21 @@ pub fn rules_from_input(input: &str, process: bool, target: &str) -> Result<Vec<
         rules.push(rule);
     }
     normalize_direct_rules(&rules)
+}
+
+/// Used to retire existing connections when a process rule changes.
+pub fn process_rule_matches(rule: &str, process: &str, path: &str) -> bool {
+    let mut parts = rule.split(',');
+    let kind = parts.next().unwrap_or_default();
+    let value = parts.next().unwrap_or_default();
+    match kind {
+        "PROCESS-NAME" => value.eq_ignore_ascii_case(process),
+        "PROCESS-PATH" => value.eq_ignore_ascii_case(path),
+        "PROCESS-PATH-WILDCARD" => value
+            .strip_suffix('*')
+            .is_some_and(|prefix| path.to_lowercase().starts_with(&prefix.to_lowercase())),
+        _ => false,
+    }
 }
 
 /// Country assignment uses labels supplied by the subscription. A node with
@@ -973,7 +1113,11 @@ pub const COUNTRIES: &[(&str, &str, &[&str])] = &[
     ("FR", "Франция", &["🇫🇷", "france", "франция", "fr"]),
     ("PL", "Польша", &["🇵🇱", "poland", "польша", "pl"]),
     ("TR", "Турция", &["🇹🇷", "turkey", "türkiye", "турция", "tr"]),
-    ("RU", "Россия", &["🇷🇺", "russia", "россия", "ru", "rus", "москва", "moscow"]),
+    (
+        "RU",
+        "Россия",
+        &["🇷🇺", "russia", "россия", "ru", "rus", "москва", "moscow"],
+    ),
     ("SG", "Сингапур", &["🇸🇬", "singapore", "сингапур", "sg"]),
     ("JP", "Япония", &["🇯🇵", "japan", "япония", "jp"]),
     ("CA", "Канада", &["🇨🇦", "canada", "канада", "ca"]),
@@ -1099,11 +1243,29 @@ pub fn is_russian_node(node: &Node) -> bool {
         .filter(|s| !s.is_empty())
         .collect();
     const RU_KEYWORDS: &[&str] = &[
-        "russia", "россия", "российск", "moscow", "москва", "msk", "мск",
-        "spb", "спб", "питер", "петербург", "petersburg", "novosibirsk",
-        "новосибирск", "ekaterinburg", "екатеринбург", "kazan", "казань",
+        "russia",
+        "россия",
+        "российск",
+        "moscow",
+        "москва",
+        "msk",
+        "мск",
+        "spb",
+        "спб",
+        "питер",
+        "петербург",
+        "petersburg",
+        "novosibirsk",
+        "новосибирск",
+        "ekaterinburg",
+        "екатеринбург",
+        "kazan",
+        "казань",
     ];
-    if words.iter().any(|w| RU_KEYWORDS.iter().any(|k| w.contains(k))) {
+    if words
+        .iter()
+        .any(|w| RU_KEYWORDS.iter().any(|k| w.contains(k)))
+    {
         return true;
     }
     for word in &words {
@@ -1111,16 +1273,32 @@ pub fn is_russian_node(node: &Node) -> bool {
         if cleaned == "ru" || cleaned == "rus" {
             return true;
         }
-        if cleaned.starts_with("ru") && cleaned.len() >= 3 && cleaned[2..].chars().all(|c| c.is_ascii_digit()) {
+        if cleaned.starts_with("ru")
+            && cleaned.len() >= 3
+            && cleaned[2..].chars().all(|c| c.is_ascii_digit())
+        {
             return true;
         }
-        if cleaned.ends_with("ru") && cleaned.len() >= 3 && cleaned[..cleaned.len() - 2].chars().all(|c| c.is_ascii_digit()) {
+        if cleaned.ends_with("ru")
+            && cleaned.len() >= 3
+            && cleaned[..cleaned.len() - 2]
+                .chars()
+                .all(|c| c.is_ascii_digit())
+        {
             return true;
         }
     }
-    if let Some(server) = node.proxy.get(serde_yaml::Value::from("server")).and_then(serde_yaml::Value::as_str) {
+    if let Some(server) = node
+        .proxy
+        .get(serde_yaml::Value::from("server"))
+        .and_then(serde_yaml::Value::as_str)
+    {
         let s = server.to_lowercase();
-        if s.ends_with(".ru") || s.ends_with(".рф") || s.ends_with(".su") || s.ends_with(".xn--p1ai") {
+        if s.ends_with(".ru")
+            || s.ends_with(".рф")
+            || s.ends_with(".su")
+            || s.ends_with(".xn--p1ai")
+        {
             return true;
         }
     }
@@ -1232,16 +1410,17 @@ mod tests {
     const URI: &str = "vless://00000000-0000-4000-8000-000000000001@server.example:443?security=reality&sni=example.com&pbk=public&sid=abcd&type=ws&path=%2Fvless#Europe%20One";
     #[test]
     fn automatic_system_proxy_defaults_and_migrates_old_placeholder() {
-        assert!(Settings::default().system_proxy);
+        assert_eq!(Settings::default().system_proxy, default_system_proxy());
         let mut old = serde_json::to_value(Settings::default()).unwrap();
         old.as_object_mut()
             .unwrap()
             .remove("automatic_system_proxy");
         old["system_proxy"] = serde_json::json!(false);
-        assert!(
+        assert_eq!(
             serde_json::from_value::<Settings>(old)
                 .unwrap()
-                .system_proxy
+                .system_proxy,
+            default_system_proxy()
         );
         let mut settings = Settings::default();
         settings.system_proxy = false;
@@ -1288,8 +1467,10 @@ mod tests {
             URI.replace("type=ws", "fm=unsupported&type=tcp")
         )))
         .unwrap();
-        assert_eq!(report.nodes.len(), 1);
-        assert_eq!(report.skipped.len(), 2);
+        assert_eq!(report.nodes.len(), 2);
+        assert_eq!(report.skipped.len(), 1);
+        assert_eq!(report.warnings.len(), 1);
+        assert!(report.warnings[0].contains("без фрагментации FM"));
         assert!(report.skipped[0].contains("Узел 2"));
         assert!(!report.skipped.join(" ").contains("server.example"));
         assert!(import_subscription("vless://broken").is_err());
@@ -1298,6 +1479,74 @@ mod tests {
     fn rejects_partial_or_lossy_import() {
         assert!(parse_subscription(&format!("{URI}\nvless://broken")).is_err());
         assert!(parse_subscription(&URI.replace("type=ws", "type=xhttp")).is_err());
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_process_rules_support_names_and_bundle_executable_paths() {
+        let path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+        let rules = rules_from_input(
+            &format!("Safari; Google Chrome Helper; {path}"),
+            true,
+            "MULTILINK",
+        )
+        .unwrap();
+        assert!(rules.contains(&"PROCESS-NAME,Safari,MULTILINK".into()));
+        assert!(rules.contains(&"PROCESS-NAME,Google Chrome Helper,MULTILINK".into()));
+        assert!(rules.contains(&format!("PROCESS-PATH,{path},MULTILINK")));
+        assert!(rules_from_input("../Safari", true, "DIRECT").is_err());
+        assert!(rules_from_input("/Applications/../bin/helper", true, "DIRECT").is_err());
+        let mut settings = Settings::default();
+        settings.rules = rules;
+        let restored =
+            RoutingConfig::decode(&RoutingConfig::from_settings(&settings).encode().unwrap())
+                .unwrap();
+        assert_eq!(restored.rules, settings.rules);
+        let rule = rules_from_input("/Applications/Google Chrome.app", true, "DIRECT")
+            .unwrap()
+            .remove(0);
+        assert!(rule.starts_with("PROCESS-PATH-WILDCARD,"));
+        assert!(process_rule_matches(&rule, "Google Chrome Helper", "/Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper"));
+        assert!(!process_rule_matches(
+            &rule,
+            "Other",
+            "/Applications/Other.app/Contents/MacOS/Other"
+        ));
+        assert_eq!(normalize_direct_rules(&[rule.clone()]).unwrap(), vec![rule]);
+    }
+    #[test]
+    fn fm_compatibility_import_preserves_connection_parameters() {
+        let normal = parse_subscription(URI).unwrap().remove(0);
+        let uri = URI.replace(
+            "type=ws",
+            "fm=%7B%22tcp%22%3A%5B%7B%22fragment%22%3A%22tlshello%22%7D%5D%7D&type=ws",
+        );
+        // Strict callers still reject lossy conversion. Interactive import
+        // deliberately accepts FM omission and returns an explicit warning.
+        assert!(parse_subscription(&uri).is_err());
+        let mut payloads = vec![uri.clone()];
+        for engine in [
+            &general_purpose::STANDARD,
+            &general_purpose::STANDARD_NO_PAD,
+            &general_purpose::URL_SAFE,
+            &general_purpose::URL_SAFE_NO_PAD,
+        ] {
+            payloads.push(engine.encode(&uri));
+        }
+        for payload in payloads {
+            let report = import_subscription(&payload).unwrap();
+            assert_eq!(report.nodes.len(), 1);
+            assert!(report.skipped.is_empty());
+            assert_eq!(report.warnings.len(), 1);
+            let node = &report.nodes[0];
+            assert_eq!(node.proxy, normal.proxy);
+            assert_eq!(node.name, normal.name);
+            assert_eq!(node.spider_x, normal.spider_x);
+            assert!(!node.to_vless_uri().unwrap().contains("fm="));
+            assert!(!report.warnings[0].contains("server.example"));
+            assert!(!report.warnings[0].contains("tlshello"));
+        }
+        assert!(import_subscription(&uri.replace("type=ws", "type=xhttp")).is_err());
+        assert!(import_subscription(&uri.replace("type=ws", "other=required&type=ws")).is_err());
     }
     #[test]
     fn direct_rules_are_validated() {

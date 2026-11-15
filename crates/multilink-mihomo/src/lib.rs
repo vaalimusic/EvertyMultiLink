@@ -17,7 +17,11 @@ use std::{
 
 pub const PORT: u16 = 17890;
 pub const CONTROLLER: u16 = 19090;
-const TUN_DEVICE: &str = "EvertyMultiLink";
+const TUN_DEVICE: &str = if cfg!(target_os = "macos") {
+    "utun198"
+} else {
+    "EvertyMultiLink"
+};
 pub fn binary() -> PathBuf {
     let name = if cfg!(windows) {
         "mihomo.exe"
@@ -121,11 +125,21 @@ pub fn config(settings: &Settings, secret: &str) -> Result<String, String> {
         }
     }
     let mut rules = multilink_core::normalize_direct_rules(&settings.rules)?;
-    let match_target = if settings.rules_only { "DIRECT" } else { "MULTILINK" };
+    let match_target = if settings.rules_only {
+        "DIRECT"
+    } else {
+        "MULTILINK"
+    };
     rules.push(format!("MATCH,{match_target}"));
     let mut groups = vec![group];
-    let default_proxy_names: Vec<_> = default_nodes.iter().map(|n| &proxy_names[&n.name]).collect();
-    if rules.iter().any(|r| r.split(',').nth(2) == Some("MODE-SMART")) {
+    let default_proxy_names: Vec<_> = default_nodes
+        .iter()
+        .map(|n| &proxy_names[&n.name])
+        .collect();
+    if rules
+        .iter()
+        .any(|r| r.split(',').nth(2) == Some("MODE-SMART"))
+    {
         groups.push(json!({
             "name": "MODE-SMART",
             "type": "url-test",
@@ -138,7 +152,10 @@ pub fn config(settings: &Settings, secret: &str) -> Result<String, String> {
             "lazy": false
         }));
     }
-    if rules.iter().any(|r| r.split(',').nth(2) == Some("MODE-LATENCY")) {
+    if rules
+        .iter()
+        .any(|r| r.split(',').nth(2) == Some("MODE-LATENCY"))
+    {
         groups.push(json!({
             "name": "MODE-LATENCY",
             "type": "url-test",
@@ -150,7 +167,10 @@ pub fn config(settings: &Settings, secret: &str) -> Result<String, String> {
             "lazy": false
         }));
     }
-    if rules.iter().any(|r| r.split(',').nth(2) == Some("MODE-STABLE")) {
+    if rules
+        .iter()
+        .any(|r| r.split(',').nth(2) == Some("MODE-STABLE"))
+    {
         groups.push(json!({
             "name": "MODE-STABLE",
             "type": "fallback",
@@ -160,7 +180,10 @@ pub fn config(settings: &Settings, secret: &str) -> Result<String, String> {
             "lazy": false
         }));
     }
-    if rules.iter().any(|r| r.split(',').nth(2) == Some("MODE-BALANCE")) {
+    if rules
+        .iter()
+        .any(|r| r.split(',').nth(2) == Some("MODE-BALANCE"))
+    {
         groups.push(json!({
             "name": "MODE-BALANCE",
             "type": "load-balance",
@@ -231,7 +254,7 @@ pub fn config(settings: &Settings, secret: &str) -> Result<String, String> {
         "proxies":proxies, "proxy-groups":groups, "rules":rules,
         "profile":{"store-selected":false, "store-fake-ip":false},
     });
-    if settings.tun || rules.iter().any(|rule| rule.starts_with("PROCESS-NAME,")) {
+    if settings.tun || rules.iter().any(|rule| rule.starts_with("PROCESS-")) {
         config["find-process-mode"] = json!("strict");
     }
     if settings.tun {
@@ -255,12 +278,25 @@ pub fn config(settings: &Settings, secret: &str) -> Result<String, String> {
             "nameserver": ["https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query"]
         });
         config["sniffer"] = json!({"enable": true, "sniff": {"HTTP": {"ports": [80, "8080-8880"], "override-destination": true}, "TLS": {"ports": [443, 8443]}, "QUIC": {"ports": [443, 8443]}}});
+        #[cfg(target_os = "macos")]
+        {
+            // DNS is transactionally managed by our root helper so its watchdog
+            // can restore it even after an ungraceful core termination.
+            config["tun"]["inet4-address"] = json!(["198.18.0.1/30"]);
+            config["tun"]["inet6-address"] = json!(["fdfe:dcba:9876::1/126"]);
+            config["tun"]["mtu"] = json!(1500);
+            config["ipv6"] = json!(true);
+            config["dns"]["ipv6"] = json!(true);
+            config["dns"]["respect-rules"] = json!(true);
+            config["dns"]["proxy-server-nameserver"] =
+                json!(["https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query"]);
+        }
     }
     if rules
         .iter()
         .any(|rule| rule.starts_with("RULE-SET,RU-SITES,"))
     {
-        config["rule-providers"] = json!({"RU-SITES":{"type":"file","behavior":"domain","format":"mrs","path":multilink_platform::data_dir().join("runtime/category-ru.mrs")}});
+        config["rule-providers"] = json!({"RU-SITES":{"type":"file","behavior":"domain","format":"mrs","path":"category-ru.mrs"}});
     }
     serde_yaml::to_string(&config).map_err(|_| "Не удалось создать конфигурацию".into())
 }
@@ -274,13 +310,47 @@ pub struct Metrics {
     pub up_rate: f64,
 }
 
+enum CoreChild {
+    Local(Child),
+    #[cfg(target_os = "macos")]
+    Elevated(multilink_platform::macos_network::NetworkSession),
+}
+impl CoreChild {
+    fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
+        match self {
+            Self::Local(child) => child.try_wait(),
+            #[cfg(target_os = "macos")]
+            Self::Elevated(session) => {
+                use std::os::unix::process::ExitStatusExt;
+                session
+                    .core_exit()
+                    .map(|exit| exit.map(|code| std::process::ExitStatus::from_raw(code << 8)))
+            }
+        }
+    }
+    fn kill(&mut self) -> std::io::Result<()> {
+        match self {
+            Self::Local(child) => child.kill(),
+            #[cfg(target_os = "macos")]
+            Self::Elevated(session) => session.stop_core(),
+        }
+    }
+    fn wait(&mut self) -> std::io::Result<()> {
+        match self {
+            Self::Local(child) => child.wait().map(|_| ()),
+            #[cfg(target_os = "macos")]
+            Self::Elevated(_) => Ok(()),
+        }
+    }
+}
+
 pub struct Engine {
-    child: Child,
+    child: CoreChild,
     client: Client,
     secret: String,
     path: PathBuf,
     last: Option<(Instant, u64, u64)>,
-    _job: multilink_platform::ChildJob,
+    _job: Option<multilink_platform::ChildJob>,
     settings: Settings,
 }
 #[derive(Default)]
@@ -308,6 +378,7 @@ impl Engine {
     }
     pub fn start(settings: &Settings) -> Result<Self, String> {
         if settings.tun
+            && !cfg!(target_os = "macos")
             && !multilink_platform::is_elevated()
                 .map_err(|e| format!("Не удалось проверить права Windows: {e}"))?
         {
@@ -318,7 +389,10 @@ impl Engine {
         }
         let binary = binary();
         if !binary.is_file() {
-            return Err("Ядро Mihomo не найдено. Переустановите приложение или положите mihomo.exe рядом с ним".into());
+            return Err(format!(
+                "Ядро Mihomo не найдено: {}. Переустановите приложение",
+                binary.display()
+            ));
         }
         if settings.tun && multilink_platform::tun_adapter_up(TUN_DEVICE) {
             return Err(
@@ -327,7 +401,7 @@ impl Engine {
         }
         // Fail if another application owns either port, before writing credentials.
         for port in [PORT, CONTROLLER] {
-            std::net::TcpListener::bind(("127.0.0.1", port))
+            multilink_platform::ensure_loopback_port_free(port)
                 .map_err(|_| format!("Локальный порт {port} уже занят"))?;
         }
         let dir = multilink_platform::data_dir().join("runtime");
@@ -339,6 +413,12 @@ impl Engine {
             .build()
             .map_err(|_| "Ошибка HTTP-клиента")?;
         std::fs::create_dir_all(&dir).map_err(|_| "Нет доступа к папке ядра")?;
+        #[cfg(target_os = "macos")]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+                .map_err(|_| "Не удалось защитить папку конфигурации ядра")?;
+        }
         let path = dir.join(format!("session-{}.yaml", uuid::Uuid::new_v4()));
         Self::ensure_rule_data(settings)?;
         let secret = uuid::Uuid::new_v4().to_string();
@@ -358,14 +438,40 @@ impl Engine {
             use std::os::windows::process::CommandExt;
             command.creation_flags(0x08000000);
         }
-        let mut child = match command.spawn() {
+        let spawn = || -> Result<CoreChild, String> {
+            #[cfg(target_os = "macos")]
+            if settings.tun
+                || settings.system_proxy
+                || settings
+                    .rules
+                    .iter()
+                    .any(|rule| rule.starts_with("PROCESS-"))
+            {
+                return multilink_platform::macos_network::NetworkSession::start_core(&config(
+                    settings, &secret,
+                )?)
+                .map(CoreChild::Elevated)
+                .map_err(|error| error.to_string());
+            }
+            command
+                .spawn()
+                .map(CoreChild::Local)
+                .map_err(|error| error.to_string())
+        };
+        let mut spawn = spawn;
+        let mut child = match spawn() {
             Ok(child) => child,
-            Err(_) => {
+            Err(error) => {
                 let _ = std::fs::remove_file(&path);
-                return Err("Не удалось запустить Mihomo".into());
+                return Err(format!("Не удалось запустить Mihomo: {error}"));
             }
         };
-        let job = match multilink_platform::ChildJob::attach(&child) {
+        let attached = match &child {
+            CoreChild::Local(child) => multilink_platform::ChildJob::attach(child).map(Some),
+            #[cfg(target_os = "macos")]
+            CoreChild::Elevated(_) => Ok(None),
+        };
+        let job = match attached {
             Ok(job) => job,
             Err(_) => {
                 let _ = child.kill();
@@ -412,6 +518,8 @@ impl Engine {
             .map_err(|_| "Нет связи с локальным API Mihomo".to_owned())
     }
     fn apply_yaml(&mut self, contents: &str) -> Result<(), String> {
+        let previous = std::fs::read_to_string(&self.path)
+            .map_err(|_| "Не удалось прочитать предыдущую конфигурацию")?;
         let next = self
             .path
             .with_file_name(format!("session-{}.yaml", uuid::Uuid::new_v4()));
@@ -420,7 +528,7 @@ impl Engine {
             .client
             .put(format!("http://127.0.0.1:{CONTROLLER}/configs?force=false"))
             .bearer_auth(&self.secret)
-            .json(&json!({"path":next}))
+            .json(&json!({"payload":contents}))
             .send();
         match result {
             Ok(response) if response.status().is_success() => {
@@ -436,7 +544,7 @@ impl Engine {
                     self.client
                         .put(format!("http://127.0.0.1:{CONTROLLER}/configs?force=false"))
                         .bearer_auth(&self.secret)
-                        .json(&json!({"path":self.path}))
+                        .json(&json!({"payload":previous}))
                         .send()
                         .is_ok_and(|r| r.status().is_success())
                 } else {
@@ -499,10 +607,13 @@ impl Engine {
                     .unwrap_or_default();
                 if changed.iter().any(|rule| {
                     multilink_core::exception_matches(rule, host, ip)
-                        || rule
-                            .strip_prefix("PROCESS-NAME,")
-                            .and_then(|r| r.split(',').next())
-                            .is_some_and(|name| name.eq_ignore_ascii_case(process))
+                        || multilink_core::process_rule_matches(
+                            rule,
+                            process,
+                            connection["metadata"]["processPath"]
+                                .as_str()
+                                .unwrap_or_default(),
+                        )
                 }) {
                     if let Some(id) = connection["id"].as_str() {
                         if self
@@ -581,6 +692,32 @@ impl Engine {
         })
     }
     /// Verify actual Internet reachability through the local Mihomo proxy.
+    pub fn verify_proxy_exit(&self) -> bool {
+        let Ok(client) = Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(7))
+            .build()
+        else {
+            return false;
+        };
+        [
+            "https://www.gstatic.com/generate_204",
+            "https://www.apple.com/library/test/success.html",
+        ]
+        .iter()
+        .any(|url| {
+            client
+                .get(format!(
+                    "http://127.0.0.1:{CONTROLLER}/proxies/MULTILINK/delay"
+                ))
+                .bearer_auth(&self.secret)
+                .query(&[("url", *url), ("timeout", "5000"), ("expected", "200-399")])
+                .send()
+                .and_then(|r| r.error_for_status())
+                .and_then(|r| r.json::<Value>())
+                .is_ok_and(|value| value["delay"].as_u64().is_some())
+        })
+    }
     pub fn tunnel_reachable(&self) -> bool {
         let Ok(proxy) = reqwest::Proxy::all(format!("http://127.0.0.1:{PORT}")) else {
             return false;
@@ -653,13 +790,208 @@ pub fn fetch_subscription(url: &str) -> Result<String, String> {
     fetch_subscription_with_proxy(url, false)
 }
 
+/// Exercise the real macOS network path using an already imported subscription.
+/// This never changes persisted settings and always disconnects before returning.
+#[cfg(target_os = "macos")]
+pub fn check_macos_network(mut settings: Settings) -> Result<(), String> {
+    use multilink_platform::macos_network::NetworkSnapshot;
+    if !settings.nodes.iter().any(|node| node.enabled) {
+        return Err("Сначала импортируйте и включите хотя бы один сервер в приложении".into());
+    }
+    let before = NetworkSnapshot::capture().map_err(|e| e.to_string())?;
+    settings.tun = true;
+    settings.system_proxy = false;
+    let outcome: Result<(), String> = (|| {
+        eprintln!("macOS network check: authorizing and starting TUN");
+        let mut engine = Engine::start(&settings)?;
+        if !engine.verify_proxy_exit() {
+            return Err("Проверка выхода через выбранные VPN-серверы не прошла".into());
+        }
+        let route = Command::new("/sbin/route")
+            .args(["-n", "get", "1.1.1.1"])
+            .output()
+            .map_err(|e| e.to_string())?;
+        if !String::from_utf8_lossy(&route.stdout).contains(TUN_DEVICE) {
+            return Err("Системный маршрут не переключился на utun198".into());
+        }
+        let fetch = || -> Result<(), String> {
+            let response = Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(12))
+                .build()
+                .map_err(|_| "Не удалось создать проверочный HTTP-клиент")?
+                .get("https://www.gstatic.com/generate_204")
+                .send()
+                .map_err(|_| "Нет доступа через системный TUN: проверьте сервер и его параметры")?;
+            if !response.status().is_success() {
+                return Err(format!("Проверка TUN: HTTP {}", response.status().as_u16()));
+            }
+            Ok(())
+        };
+        fetch()?;
+        eprintln!("macOS network check: system route, DNS and HTTPS through TUN passed");
+        let original = config(&settings, &engine.secret)?;
+        let mut modified: Value = serde_yaml::from_str(&original).map_err(|e| e.to_string())?;
+        let rules = modified["rules"].as_array_mut().ok_or("Нет правил ядра")?;
+        rules.insert(0, json!("DOMAIN-SUFFIX,www.gstatic.com,REJECT"));
+        engine.apply_yaml(&serde_yaml::to_string(&modified).map_err(|e| e.to_string())?)?;
+        if fetch().is_ok() {
+            return Err("Доменное правило не перехватило системное соединение".into());
+        }
+        engine.apply_yaml(&original)?;
+        fetch()?;
+        eprintln!("macOS network check: domain routing and rule restoration passed");
+        let mut modified: Value = serde_yaml::from_str(&original).map_err(|e| e.to_string())?;
+        let executable = std::env::current_exe().map_err(|e| e.to_string())?;
+        modified["rules"]
+            .as_array_mut()
+            .ok_or("Нет правил ядра")?
+            .insert(
+                0,
+                json!(format!("PROCESS-PATH,{},REJECT", executable.display())),
+            );
+        engine.apply_yaml(&serde_yaml::to_string(&modified).map_err(|e| e.to_string())?)?;
+        if fetch().is_ok() {
+            return Err("Правило приложения не перехватило системное соединение".into());
+        }
+        engine.apply_yaml(&original)?;
+        fetch()?;
+        eprintln!("macOS network check: macOS process routing passed");
+        if let Some(bundle) = executable
+            .ancestors()
+            .find(|path| path.extension().is_some_and(|extension| extension == "app"))
+        {
+            let mut modified: Value = serde_yaml::from_str(&original).map_err(|e| e.to_string())?;
+            modified["rules"]
+                .as_array_mut()
+                .ok_or("Нет правил ядра")?
+                .insert(
+                    0,
+                    json!(format!(
+                        "PROCESS-PATH-WILDCARD,{}/Contents/*,REJECT",
+                        bundle.display()
+                    )),
+                );
+            engine.apply_yaml(&serde_yaml::to_string(&modified).map_err(|e| e.to_string())?)?;
+            if fetch().is_ok() {
+                return Err("Правило пакета .app не перехватило системное соединение".into());
+            }
+            engine.apply_yaml(&original)?;
+            fetch()?;
+            eprintln!("macOS network check: app bundle and helper-process routing passed");
+        }
+        {
+            let mut proxy =
+                multilink_platform::SystemProxyGuard::enable(PORT).map_err(|e| e.to_string())?;
+            // SCPreferencesApplyChanges publishes to the dynamic store asynchronously.
+            // Keep the response alive while inspecting its connection in Mihomo.
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                let client = Client::builder()
+                    .timeout(Duration::from_secs(12))
+                    .build()
+                    .map_err(|e| e.to_string())?;
+                let _response = client
+                    .get("https://www.gstatic.com/generate_204")
+                    .send()
+                    .map_err(|_| "Нет доступа через системный прокси")?
+                    .error_for_status()
+                    .map_err(|_| "Ошибка через системный прокси")?;
+                let connections = engine.get("connections")?;
+                let matching: Vec<&Value> = connections["connections"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|connection| connection["metadata"]["host"] == "www.gstatic.com")
+                    .collect();
+                if matching.iter().any(|connection| {
+                    matches!(
+                        connection["metadata"]["type"].as_str(),
+                        Some("HTTP" | "HTTPS" | "Socks5")
+                    )
+                }) {
+                    break;
+                }
+                let observed_types: Vec<String> = matching
+                    .iter()
+                    .filter_map(|connection| connection["metadata"]["type"].as_str())
+                    .map(str::to_owned)
+                    .collect();
+                if Instant::now() >= deadline {
+                    return Err(format!(
+                        "Системный HTTP-клиент не использовал настроенный локальный прокси (типы: {observed_types:?})"
+                    ));
+                }
+                std::thread::sleep(Duration::from_millis(200));
+            }
+            proxy.restore().map_err(|e| e.to_string())?;
+        }
+        eprintln!("macOS network check: automatic system proxy passed");
+        drop(engine);
+        Ok(())
+    })();
+    if !before.is_unchanged().map_err(|e| e.to_string())? {
+        return Err("Исходные настройки DNS/прокси не восстановлены после проверки".into());
+    }
+    if multilink_platform::tun_adapter_up(TUN_DEVICE) {
+        return Err("TUN-интерфейс остался активен после отключения".into());
+    }
+    eprintln!("macOS network check: original proxy/DNS settings restored and TUN removed");
+    outcome?;
+    {
+        eprintln!("macOS network check: testing independent crash recovery");
+        let engine = Engine::start(&settings)?;
+        let proxy =
+            multilink_platform::SystemProxyGuard::enable(PORT).map_err(|e| e.to_string())?;
+        let session = multilink_platform::macos_network::NetworkSession::acquire()
+            .map_err(|e| e.to_string())?;
+        session
+            .abort_own_helper_for_check()
+            .map_err(|e| e.to_string())?;
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut recovered = false;
+        while Instant::now() < deadline {
+            if before.is_unchanged().map_err(|e| e.to_string())?
+                && !multilink_platform::tun_adapter_up(TUN_DEVICE)
+            {
+                recovered = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        // Only drop the user-side guards after proving the root watchdog did it.
+        if !recovered {
+            return Err("Независимое аварийное восстановление сети не подтвердилось".into());
+        }
+        eprintln!("macOS network check: independent watchdog restored DNS/proxy and removed TUN after SIGKILL");
+        drop(proxy);
+        drop(engine);
+    }
+    {
+        let engine = Engine::start(&settings)?;
+        if !engine.verify_proxy_exit() {
+            return Err("Повторное подключение после аварии не прошло проверку".into());
+        }
+        drop(engine);
+    }
+    if !before.is_unchanged().map_err(|e| e.to_string())?
+        || multilink_platform::tun_adapter_up(TUN_DEVICE)
+    {
+        return Err("Сеть не восстановлена после повторного подключения".into());
+    }
+    eprintln!("macOS network check: reconnect after helper crash passed");
+    Ok(())
+}
+
 pub fn fetch_subscription_with_proxy(url: &str, connected: bool) -> Result<String, String> {
     use std::io::Read;
     let url = multilink_core::subscription_url(url)?;
-    let request = |proxy: bool| {
+    // Prefer the user's configured network path (including another VPN's
+    // system proxy), then fall back to a direct connection or our own core.
+    let request = |route: u8| {
         let mut builder = Client::builder()
-            .no_proxy()
             .user_agent("Mihomo")
+            .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(15))
             .redirect(reqwest::redirect::Policy::custom(|attempt| {
                 let url = attempt.url();
@@ -673,7 +1005,10 @@ pub fn fetch_subscription_with_proxy(url: &str, connected: bool) -> Result<Strin
                     attempt.error("Unsafe or excessive subscription redirects")
                 }
             }));
-        if proxy {
+        if route != 0 {
+            builder = builder.no_proxy();
+        }
+        if route == 2 {
             builder = builder.proxy(
                 reqwest::Proxy::all(format!("http://127.0.0.1:{PORT}"))
                     .map_err(|_| "Не удалось настроить прокси для подписки".to_owned())?,
@@ -685,7 +1020,18 @@ pub fn fetch_subscription_with_proxy(url: &str, connected: bool) -> Result<Strin
             .get(&url)
             .header(reqwest::header::CACHE_CONTROL, "no-cache")
             .send()
-            .map_err(|_| "Не удалось скачать подписку: проверьте адрес и доступность".to_owned())?;
+            .map_err(|error| {
+                // Never include reqwest's URL-bearing error string: subscription
+                // URLs contain credentials. Keep the useful error category.
+                let reason = if error.is_timeout() {
+                    "истекло время ожидания"
+                } else if error.is_connect() {
+                    "не удалось установить соединение (DNS, TLS или прокси)"
+                } else {
+                    "ошибка сетевого запроса"
+                };
+                format!("Не удалось скачать подписку: {reason}")
+            })?;
         if !response.status().is_success() {
             return Err(format!(
                 "Сервер подписки ответил HTTP {}",
@@ -694,8 +1040,13 @@ pub fn fetch_subscription_with_proxy(url: &str, connected: bool) -> Result<Strin
         }
         Ok(response)
     };
-    let response =
-        request(false).or_else(|error| if connected { request(true) } else { Err(error) })?;
+    let response = request(0).or_else(|_| request(1)).or_else(|error| {
+        if connected {
+            request(2)
+        } else {
+            Err(error)
+        }
+    })?;
     let mut bytes = Vec::new();
     response
         .take(4 * 1024 * 1024 + 1)
@@ -713,6 +1064,7 @@ mod tests {
     #[test]
     fn tun_config_is_opt_in_and_accepted_by_installed_mihomo() {
         let mut settings = Settings::default();
+        settings.tun = false;
         settings.nodes = multilink_core::parse_subscription(
             "vless://00000000-0000-4000-8000-000000000001@example.invalid:443#Node",
         )
@@ -1206,7 +1558,11 @@ pub fn is_newer_version(remote: &str, current: &str) -> bool {
     let parse_parts = |v: &str| -> Vec<u32> {
         v.trim_start_matches('v')
             .split('.')
-            .map(|p| p.chars().take_while(|c| c.is_ascii_digit()).collect::<String>())
+            .map(|p| {
+                p.chars()
+                    .take_while(|c| c.is_ascii_digit())
+                    .collect::<String>()
+            })
             .filter_map(|s| s.parse::<u32>().ok())
             .collect()
     };
@@ -1267,4 +1623,3 @@ fn test_version_comparisons() {
     assert!(!is_newer_version("1.1.1", "1.1.2"));
     assert!(!is_newer_version("1.0.9", "1.1.2"));
 }
-
