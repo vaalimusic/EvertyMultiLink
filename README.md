@@ -18,6 +18,10 @@
   <a href="#русский">Русский</a> • <a href="#english">English</a> • <a href="https://t.me/evertymultilink">Telegram сообщество</a> • <a href="https://boosty.to/vaali/donate">Поддержать / Donate ❤️</a> • <a href="https://desk.everty.ru/opensource">Everty OpenSource</a>
 </p>
 
+<p align="center">
+  <img src="assets/preview-showcase.png" alt="Everty MultiLink Ecosystem — Windows, macOS, Android" width="100%" />
+</p>
+
 ---
 
 <a name="русский"></a>
