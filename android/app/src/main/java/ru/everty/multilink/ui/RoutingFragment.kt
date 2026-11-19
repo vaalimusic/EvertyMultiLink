@@ -3,12 +3,15 @@ package ru.everty.multilink.ui
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
+import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.core.widget.doAfterTextChanged
 import androidx.fragment.app.Fragment
@@ -235,24 +238,11 @@ class RoutingFragment : Fragment() {
         val etSearch = dialogView.findViewById<EditText>(R.id.etSearchApp)
         val rvApps = dialogView.findViewById<RecyclerView>(R.id.rvAppsList)
         val btnClose = dialogView.findViewById<MaterialButton>(R.id.btnCloseAppsDialog)
+        val cbShowSystem = dialogView.findViewById<CheckBox>(R.id.cbShowSystemApps)
+        val pbLoading = dialogView.findViewById<ProgressBar>(R.id.pbLoadingApps)
 
-        val pm = requireContext().packageManager
-        val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
-            addCategory(Intent.CATEGORY_LAUNCHER)
-        }
-        val resolveInfos = pm.queryIntentActivities(mainIntent, 0)
         val selectedSet = settings.perAppVpnPackages.toMutableSet()
-
-        val appItems = resolveInfos.mapNotNull { ri ->
-            val pkg = ri.activityInfo.packageName
-            if (pkg == requireContext().packageName) return@mapNotNull null
-            val name = ri.loadLabel(pm).toString()
-            val icon = ri.loadIcon(pm)
-            AppInfoItem(name = name, packageName = pkg, icon = icon, isSelected = selectedSet.contains(pkg))
-        }.distinctBy { it.packageName }
-         .sortedBy { it.name.lowercase() }
-
-        val appsAdapter = AppSelectAdapter(appItems) { item ->
+        val appsAdapter = AppSelectAdapter(emptyList()) { item ->
             settings.toggleAppPackage(item.packageName)
             updateSelectAppsButtonText()
         }
@@ -264,6 +254,12 @@ class RoutingFragment : Fragment() {
             appsAdapter.filter(text?.toString() ?: "")
         }
 
+        cbShowSystem.setOnCheckedChangeListener { _, isChecked ->
+            appsAdapter.setShowSystem(isChecked)
+        }
+
+        pbLoading.visibility = View.VISIBLE
+
         val dialog = MaterialAlertDialogBuilder(requireContext())
             .setView(dialogView)
             .create()
@@ -273,6 +269,62 @@ class RoutingFragment : Fragment() {
         }
 
         dialog.show()
+
+        val appContext = requireContext().applicationContext
+        Thread {
+            val pm = appContext.packageManager
+            val installedApps: List<ApplicationInfo> = try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
+                } else {
+                    @Suppress("DEPRECATION")
+                    pm.getInstalledApplications(0)
+                }
+            } catch (e: Exception) {
+                emptyList()
+            }
+
+            val appItems = installedApps.mapNotNull { appInfo ->
+                val pkg = appInfo.packageName
+                if (pkg == appContext.packageName) return@mapNotNull null
+
+                val launchIntent = pm.getLaunchIntentForPackage(pkg)
+                    ?: pm.getLeanbackLaunchIntentForPackage(pkg)
+                val isLaunchable = launchIntent != null
+                val isSystem = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                    && (appInfo.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) == 0
+                    && !isLaunchable
+
+                val name = try {
+                    appInfo.loadLabel(pm).toString()
+                } catch (e: Exception) {
+                    pkg
+                }
+                val icon = try {
+                    appInfo.loadIcon(pm)
+                } catch (e: Exception) {
+                    null
+                }
+
+                AppInfoItem(
+                    name = name,
+                    packageName = pkg,
+                    icon = icon,
+                    isSelected = selectedSet.contains(pkg),
+                    isSystem = isSystem
+                )
+            }.sortedWith(
+                compareByDescending<AppInfoItem> { it.isSelected }
+                    .thenBy { it.isSystem }
+                    .thenBy { it.name.lowercase() }
+            )
+
+            activity?.runOnUiThread {
+                if (_binding == null || !isAdded) return@runOnUiThread
+                pbLoading.visibility = View.GONE
+                appsAdapter.setApps(appItems, cbShowSystem.isChecked)
+            }
+        }.start()
     }
 
     override fun onResume() {

@@ -37,7 +37,35 @@
         android:paddingHorizontal="12dp"
         android:textSize="13sp"
         android:singleLine="true"
-        android:layout_marginBottom="10dp" />
+        android:layout_marginBottom="8dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="8dp">
+
+        <CheckBox
+            android:id="@+id/cbShowSystemApps"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Показывать системные"
+            android:textColor="@color/text_muted"
+            android:textSize="12sp" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <ProgressBar
+            android:id="@+id/pbLoadingApps"
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:indeterminateTint="@color/accent_mint"
+            android:visibility="gone" />
+    </LinearLayout>
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rvAppsList"

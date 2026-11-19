@@ -14,7 +14,8 @@ data class AppInfoItem(
     val name: String,
     val packageName: String,
     val icon: Drawable?,
-    var isSelected: Boolean
+    var isSelected: Boolean,
+    val isSystem: Boolean = false
 )
 
 class AppSelectAdapter(
@@ -23,20 +24,33 @@ class AppSelectAdapter(
 ) : RecyclerView.Adapter<AppSelectAdapter.AppViewHolder>() {
 
     private var filteredApps: List<AppInfoItem> = allApps
+    private var currentQuery: String = ""
+    private var showSystem: Boolean = false
 
-    fun setApps(apps: List<AppInfoItem>) {
+    fun setApps(apps: List<AppInfoItem>, showSystemApps: Boolean = showSystem) {
         allApps = apps
-        filteredApps = apps
-        notifyDataSetChanged()
+        showSystem = showSystemApps
+        applyFilter()
+    }
+
+    fun setShowSystem(show: Boolean) {
+        showSystem = show
+        applyFilter()
     }
 
     fun filter(query: String) {
-        filteredApps = if (query.isBlank()) {
-            allApps
-        } else {
-            allApps.filter {
-                it.name.contains(query, ignoreCase = true) || it.packageName.contains(query, ignoreCase = true)
-            }
+        currentQuery = query
+        applyFilter()
+    }
+
+    private fun applyFilter() {
+        val q = currentQuery.trim()
+        filteredApps = allApps.filter { item ->
+            val matchesSystem = showSystem || !item.isSystem || item.isSelected
+            val matchesQuery = q.isEmpty() ||
+                item.name.contains(q, ignoreCase = true) ||
+                item.packageName.contains(q, ignoreCase = true)
+            matchesSystem && matchesQuery
         }
         notifyDataSetChanged()
     }
