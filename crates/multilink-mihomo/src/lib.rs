@@ -291,6 +291,11 @@ pub fn config(settings: &Settings, secret: &str) -> Result<String, String> {
         "proxies": proxies, "proxy-groups": groups, "rules": rules,
         "profile": {"store-selected": false, "store-fake-ip": false},
     });
+    if settings.isolate_local_proxy && settings.tun && !settings.system_proxy {
+        if let Some(obj) = config.as_object_mut() {
+            obj.remove("mixed-port");
+        }
+    }
     if let Some(key) = &settings.lan_gateway {
         if nodes.iter().any(|node| multilink_core::is_lan_node(node)) {
             return Err("Отключите LAN-серверы перед включением LAN-хоста".into());
@@ -507,10 +512,13 @@ impl Engine {
             );
         }
         // Fail if another application owns either port, before writing credentials.
-        for port in [PORT, CONTROLLER] {
-            multilink_platform::ensure_loopback_port_free(port)
-                .map_err(|_| format!("Локальный порт {port} уже занят"))?;
+        let check_proxy_port = !settings.isolate_local_proxy || !settings.tun || settings.system_proxy;
+        if check_proxy_port {
+            multilink_platform::ensure_loopback_port_free(PORT)
+                .map_err(|_| format!("Локальный порт {PORT} уже занят"))?;
         }
+        multilink_platform::ensure_loopback_port_free(CONTROLLER)
+            .map_err(|_| format!("Локальный порт {CONTROLLER} уже занят"))?;
         let dir = multilink_platform::data_dir().join("runtime");
         let client = Client::builder()
             .no_proxy()
@@ -520,7 +528,7 @@ impl Engine {
             .build()
             .map_err(|_| "Ошибка HTTP-клиента")?;
         std::fs::create_dir_all(&dir).map_err(|_| "Нет доступа к папке ядра")?;
-        #[cfg(target_os = "macos")]
+        #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
@@ -901,6 +909,21 @@ impl Drop for Engine {
     }
 }
 
+/// Returns (is_effective, status_text) describing the state of local proxy isolation.
+pub fn proxy_isolation_status(settings: &Settings, connected: bool) -> (bool, &'static str) {
+    if !settings.isolate_local_proxy {
+        (false, "Отключено")
+    } else if !settings.tun {
+        (false, "Не активна: требуется режим TUN")
+    } else if settings.system_proxy {
+        (false, "Частичная: отключите системный прокси для закрытия порта 17890")
+    } else if connected {
+        (true, "Активна · порт 17890 закрыт, API изолирован")
+    } else {
+        (true, "Будет включена при подключении к VPN")
+    }
+}
+
 pub fn fetch_subscription(url: &str) -> Result<String, String> {
     fetch_subscription_with_proxy(url, false)
 }
@@ -1098,7 +1121,16 @@ pub fn check_macos_network(mut settings: Settings) -> Result<(), String> {
     Ok(())
 }
 
-pub fn fetch_subscription_with_proxy(url: &str, connected: bool) -> Result<String, String> {
+#[derive(Clone, Debug, Default)]
+pub struct FetchedSubscription {
+    pub body: String,
+    pub expire: Option<u64>,
+    pub upload_bytes: Option<u64>,
+    pub download_bytes: Option<u64>,
+    pub total_bytes: Option<u64>,
+}
+
+pub fn fetch_subscription_full(url: &str, connected: bool) -> Result<FetchedSubscription, String> {
     use std::io::Read;
     let url = multilink_core::subscription_url(url)?;
     // Prefer the user's configured network path (including another VPN's
@@ -1162,6 +1194,31 @@ pub fn fetch_subscription_with_proxy(url: &str, connected: bool) -> Result<Strin
             Err(error)
         }
     })?;
+
+    let headers = response.headers().clone();
+    let mut expire = None;
+    let mut upload_bytes = None;
+    let mut download_bytes = None;
+    let mut total_bytes = None;
+    for header_name in ["subscription-userinfo", "Subscription-Userinfo", "Subscription-UserInfo"] {
+        if let Some(val) = headers.get(header_name).and_then(|h| h.to_str().ok()) {
+            for part in val.split(';') {
+                if let Some((k, v)) = part.trim().split_once('=') {
+                    let k = k.trim().to_ascii_lowercase();
+                    let v = v.trim().parse::<u64>().ok();
+                    match k.as_str() {
+                        "expire" => expire = v,
+                        "upload" => upload_bytes = v,
+                        "download" => download_bytes = v,
+                        "total" => total_bytes = v,
+                        _ => {}
+                    }
+                }
+            }
+            break;
+        }
+    }
+
     let mut bytes = Vec::new();
     response
         .take(4 * 1024 * 1024 + 1)
@@ -1170,7 +1227,18 @@ pub fn fetch_subscription_with_proxy(url: &str, connected: bool) -> Result<Strin
     if bytes.len() > 4 * 1024 * 1024 {
         return Err("Подписка превышает 4 МБ".into());
     }
-    String::from_utf8(bytes).map_err(|_| "Подписка не в UTF-8".into())
+    let body = String::from_utf8(bytes).map_err(|_| "Подписка не в UTF-8".to_string())?;
+    Ok(FetchedSubscription {
+        body,
+        expire,
+        upload_bytes,
+        download_bytes,
+        total_bytes,
+    })
+}
+
+pub fn fetch_subscription_with_proxy(url: &str, connected: bool) -> Result<String, String> {
+    fetch_subscription_full(url, connected).map(|f| f.body)
 }
 
 #[cfg(test)]
@@ -1237,6 +1305,33 @@ mod tests {
         assert_eq!(c["proxy-groups"][0]["strategy"], "round-robin");
         s.nodes[0].enabled = false;
         assert!(config(&s, "x").is_err());
+    }
+    #[test]
+    fn test_isolate_local_proxy_in_tun_mode() {
+        let mut s = Settings::default();
+        s.nodes = multilink_core::parse_subscription(
+            "vless://00000000-0000-4000-8000-000000000001@example.com:443#Node",
+        )
+        .unwrap();
+        s.tun = true;
+        s.system_proxy = false;
+        s.isolate_local_proxy = true;
+        let c: serde_yaml::Value =
+            serde_yaml::from_str(&config(&s, "test-secret").unwrap()).unwrap();
+        assert!(c.get("mixed-port").is_none(), "mixed-port should be removed when isolated in TUN mode");
+        assert_eq!(c["external-controller"], "127.0.0.1:19090");
+        assert_eq!(c["secret"], "test-secret");
+        let (effective, desc) = proxy_isolation_status(&s, true);
+        assert!(effective);
+        assert!(desc.contains("порт 17890 закрыт"));
+
+        // If system proxy is also enabled, mixed-port is kept
+        s.system_proxy = true;
+        let c_sys: serde_yaml::Value =
+            serde_yaml::from_str(&config(&s, "test-secret").unwrap()).unwrap();
+        assert_eq!(c_sys["mixed-port"], PORT);
+        let (eff_sys, _) = proxy_isolation_status(&s, true);
+        assert!(!eff_sys);
     }
     #[test]
     fn old_ip_rules_are_resolving_direct_rules_before_the_default_route() {

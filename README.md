@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Version-1.1.6-6FE6B4?style=flat-square" alt="Version 1.1.6" />
+  <img src="https://img.shields.io/badge/Version-1.2.0-6FE6B4?style=flat-square" alt="Version 1.2.0" />
   <img src="https://img.shields.io/badge/Language-Rust%20%7C%20Kotlin-DEA584?style=flat-square" alt="Rust &amp; Kotlin" />
   <img src="https://img.shields.io/badge/Platforms-Windows%2010%2F11%20%7C%20Android%20%7C%20Android%20TV-0078D6?style=flat-square" alt="Platforms" />
   <img src="https://img.shields.io/badge/UI-EvertyUI%20(Zero%20WebView)%20%7C%20Material-green?style=flat-square" alt="UI" />
@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <a href="#русский">Русский</a> • <a href="#english">English</a> • <a href="https://boosty.to/vaali/donate">Поддержать / Donate ❤️</a> • <a href="https://desk.everty.ru/opensource">Everty OpenSource</a>
+  <a href="#русский">Русский</a> • <a href="#english">English</a> • <a href="https://t.me/evertymultilink">Telegram сообщество</a> • <a href="https://boosty.to/vaali/donate">Поддержать / Donate ❤️</a> • <a href="https://desk.everty.ru/opensource">Everty OpenSource</a>
 </p>
 
 ---
@@ -28,6 +28,7 @@
 **Everty MultiLink** — высокопроизводительный нативный клиент для Windows, Android и Android TV, реализующий интеллектуальную раздельную маршрутизацию (Split Tunneling), управление пулами VLESS/Reality-серверов и мгновенную синхронизацию между устройствами через QR-коды и локальную сеть Wi-Fi без облачных посредников.
 
 - **Автор проекта:** [Артур Валиев (Arthur Valiev)](https://desk.everty.ru/opensource)
+- **Telegram сообщество:** [https://t.me/evertymultilink](https://t.me/evertymultilink)
 - **Лицензия:** [MIT License](LICENSE)
 - **Поддержать разработку:** [Boosty Donate](https://boosty.to/vaali/donate)
 - **Экосистема проектов:** [https://desk.everty.ru/opensource](https://desk.everty.ru/opensource)
@@ -43,18 +44,25 @@
    - Прямой доступ для российских сайтов: банки, Госуслуги, .ru, .рф, Кинопоиск, Яндекс работают на максимальной скорости вашего провайдера в обход VPN.
    - Пользовательские правила для доменов и IP (`DIRECT` или `PROXY`).
    - Разделение по приложениям (Per-App VPN) на Android.
-3. **📲 Синхронизация между устройствами (QR & Wi-Fi LAN Sync):**
+3. **🌐 Широкая поддержка протоколов:**
+   - VLESS (включая Reality, Vision, XHTTP, постквантовое шифрование ML-KEM-768).
+   - Hysteria 2 (`hysteria2://`, `hy2://`), Trojan, Shadowsocks, VMess.
+   - Интеллектуальное автоопределение: вставка одиночного узла в поле подписки автоматически добавляет его в серверы.
+4. **📲 Синхронизация между устройствами (QR & Wi-Fi LAN Sync):**
    - Передавайте подписки и отдельные серверы между ПК, смартфоном и Android TV в один клик.
    - Сканируйте QR-код камерой смартфона или открывайте встроенную локальную веб-страницу в браузере в домашней сети Wi-Fi.
    - Сохранение состояния отключенных узлов при синхронизации.
-4. **⏳ Обратный отсчёт срока подписки:**
-   - Автоматический разбор заголовка `subscription-userinfo` и отображение бейджа с количеством оставшихся дней.
-5. **🎯 Гибкие политики балансировки:**
+5. **⏳ Обратный отсчёт срока подписки:**
+   - Автоматический разбор заголовка `subscription-userinfo` и отображение бейджа с количеством оставшихся дней на Windows и Android.
+6. **🎯 Гибкие политики балансировки:**
    - `Smart` (Умный выбор с независимым тестированием маршрутов для ключевых сервисов).
    - `Balance` (Балансировка нагрузки).
    - `Latency` (Минимальный пинг / RTT).
    - `Stable` (Резервирование с отказоустойчивым переключением Fallback).
-6. **🛡️ Двойной режим работы на Windows:**
+7. **🔒 Изоляция локального прокси:**
+   - Ограничение доступа сторонних и исключённых из VPN приложений к портам SOCKS/HTTP и API управления.
+   - Полное отключение слушателя на порту 17890 в режиме TUN и защита API одноразовым криптографическим токеном.
+8. **🛡️ Двойной режим работы на Windows:**
    - **System Proxy:** работа без прав администратора через WinINet.
    - **TUN-адаптер:** перенаправление всего системного трафика через виртуальный адаптер Wintun.
 
@@ -66,14 +74,14 @@
 
 | Платформа | Формат | Описание |
 | :--- | :--- | :--- |
-| **Windows x64** | `EvertyMultiLink-1.1.6-windows-x64-setup.exe` | Автоматический установщик для Windows 10/11 |
-| **Windows x64** | `EvertyMultiLink-1.1.6-windows-x64-portable.zip` | Портативная версия (не требует установки) |
-| **macOS Apple Silicon** | `EvertyMultiLink-1.1.6-macos-arm64.zip` | Mac с чипами Apple |
-| **macOS Intel** | `EvertyMultiLink-1.1.6-macos-amd64.zip` | Mac с процессорами Intel |
-| **Android (arm64)** | `EvertyMultiLink-1.1.6-arm64-v8a-release.apk` | Смартфоны и современные ТВ-приставки |
-| **Android (armv7)** | `EvertyMultiLink-1.1.6-armeabi-v7a-release.apk` | 32-битные ТВ и старые смартфоны |
-| **Android (x86_64)** | `EvertyMultiLink-1.1.6-x86_64-release.apk` | Эмуляторы Android и устройства Intel/AMD |
-| **Android (Universal)**| `EvertyMultiLink-1.1.6-universal-release.apk` | Универсальный APK для любых Android-устройств |
+| **Windows x64** | `EvertyMultiLink-1.2.0-windows-x64-setup.exe` | Автоматический установщик для Windows 10/11 |
+| **Windows x64** | `EvertyMultiLink-1.2.0-windows-x64-portable.zip` | Портативная версия (не требует установки) |
+| **macOS Apple Silicon** | `EvertyMultiLink-1.2.0-macos-arm64.zip` | Mac с чипами Apple |
+| **macOS Intel** | `EvertyMultiLink-1.2.0-macos-amd64.zip` | Mac с процессорами Intel |
+| **Android (arm64)** | `EvertyMultiLink-1.2.0-arm64-v8a-release.apk` | Смартфоны и современные ТВ-приставки |
+| **Android (armv7)** | `EvertyMultiLink-1.2.0-armeabi-v7a-release.apk` | 32-битные ТВ и старые смартфоны |
+| **Android (x86_64)** | `EvertyMultiLink-1.2.0-x86_64-release.apk` | Эмуляторы Android и устройства Intel/AMD |
+| **Android (Universal)**| `EvertyMultiLink-1.2.0-universal-release.apk` | Универсальный APK для любых Android-устройств |
 
 ---
 
@@ -126,17 +134,24 @@ cd android
    - Direct routing for national domains (.ru, state services, banking) with full provider throughput bypassing the proxy.
    - User-defined domain and IP-CIDR custom rules (`DIRECT` vs `PROXY`).
    - Per-App VPN filtering on Android.
-3. **📲 Cross-Device QR & Wi-Fi Sync:**
+3. **🌐 Broad Protocol Support:**
+   - VLESS (Reality, Vision, XHTTP, ML-KEM-768 post-quantum encryption).
+   - Hysteria 2 (`hysteria2://`, `hy2://`), Trojan, Shadowsocks, VMess.
+   - Smart URI auto-detection between single nodes and subscription URLs.
+4. **📲 Cross-Device QR & Wi-Fi Sync:**
    - Seamlessly transfer subscriptions, server nodes, and disabled item states between PC, Phone, and Android TV.
    - Scan QR code or connect via embedded LAN HTTP server over the same Wi-Fi network (no cloud or third-party servers required).
-4. **⏳ Subscription Expiry Countdown:**
+5. **⏳ Subscription Expiry Countdown:**
    - Real-time `subscription-userinfo` header parsing with an intuitive remaining days badge.
-5. **🎯 Adaptive Routing Policies:**
+6. **🎯 Adaptive Routing Policies:**
    - `Smart` (Adaptive per-service multi-link route testing).
    - `Balance` (Load balancing).
    - `Latency` (Lowest round-trip time).
    - `Stable` (High-availability failover fallback).
-6. **🛡️ Flexible Windows Modes:**
+7. **🔒 Local Proxy Isolation:**
+   - Prevents bypass and IP leakage from Split Tunneling excluded applications.
+   - Closes local SOCKS/HTTP port 17890 listener in TUN mode and protects Mihomo API with cryptographically random tokens.
+8. **🛡️ Flexible Windows Modes:**
    - **System Proxy:** Runs without administrative rights via WinINet.
    - **TUN Adapter:** Full-system L3 IP packet routing via Wintun.
 
@@ -148,14 +163,14 @@ Pre-built binaries and APK packages are available on [GitHub Releases](https://g
 
 | Platform | Package | Description |
 | :--- | :--- | :--- |
-| **Windows x64** | `EvertyMultiLink-1.1.6-windows-x64-setup.exe` | Recommended installer for Windows 10/11 |
-| **Windows x64** | `EvertyMultiLink-1.1.6-windows-x64-portable.zip` | Standalone portable archive |
-| **macOS Apple Silicon** | `EvertyMultiLink-1.1.6-macos-arm64.zip` | Macs with Apple chips |
-| **macOS Intel** | `EvertyMultiLink-1.1.6-macos-amd64.zip` | Intel Macs |
-| **Android (arm64)** | `EvertyMultiLink-1.1.6-arm64-v8a-release.apk` | Modern 64-bit phones and Android TV boxes |
-| **Android (armv7)** | `EvertyMultiLink-1.1.6-armeabi-v7a-release.apk` | 32-bit legacy devices and smart TVs |
-| **Android (x86_64)** | `EvertyMultiLink-1.1.6-x86_64-release.apk` | Android emulators & x86 hardware |
-| **Android (Universal)**| `EvertyMultiLink-1.1.6-universal-release.apk` | Single all-in-one APK for all architectures |
+| **Windows x64** | `EvertyMultiLink-1.2.0-windows-x64-setup.exe` | Recommended installer for Windows 10/11 |
+| **Windows x64** | `EvertyMultiLink-1.2.0-windows-x64-portable.zip` | Standalone portable archive |
+| **macOS Apple Silicon** | `EvertyMultiLink-1.2.0-macos-arm64.zip` | Macs with Apple chips |
+| **macOS Intel** | `EvertyMultiLink-1.2.0-macos-amd64.zip` | Intel Macs |
+| **Android (arm64)** | `EvertyMultiLink-1.2.0-arm64-v8a-release.apk` | Modern 64-bit phones and Android TV boxes |
+| **Android (armv7)** | `EvertyMultiLink-1.2.0-armeabi-v7a-release.apk` | 32-bit legacy devices and smart TVs |
+| **Android (x86_64)** | `EvertyMultiLink-1.2.0-x86_64-release.apk` | Android emulators & x86 hardware |
+| **Android (Universal)**| `EvertyMultiLink-1.2.0-universal-release.apk` | Single all-in-one APK for all architectures |
 
 ---
 
@@ -188,6 +203,7 @@ cd android
 ## License & Support
 
 - **Author:** [Arthur Valiev](https://desk.everty.ru/opensource)
+- **Telegram Community:** [https://t.me/evertymultilink](https://t.me/evertymultilink)
 - **License:** [MIT License](LICENSE) © 2026 Arthur Valiev.
 - **Donation:** If you enjoy Everty MultiLink, consider supporting development at [Boosty Donate](https://boosty.to/vaali/donate) ❤️.
 ### Импорт из Amnezia и LAN-хост

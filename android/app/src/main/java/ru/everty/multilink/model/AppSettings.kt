@@ -31,6 +31,7 @@ class AppSettings(context: Context) {
         private const val KEY_PER_APP_ENABLED = "per_app_vpn_enabled"
         private const val KEY_PER_APP_PACKAGES = "per_app_vpn_packages"
         private const val KEY_PER_APP_MODE = "per_app_vpn_mode"
+        private const val KEY_ISOLATE_LOCAL_PROXY = "isolate_local_proxy"
     }
 
     var selectedNodeId: String?
@@ -79,6 +80,10 @@ class AppSettings(context: Context) {
     var perAppVpnPackages: Set<String>
         get() = prefs.getStringSet(KEY_PER_APP_PACKAGES, emptySet()) ?: emptySet()
         set(value) = prefs.edit().putStringSet(KEY_PER_APP_PACKAGES, value).apply()
+
+    var isLocalProxyIsolated: Boolean
+        get() = prefs.getBoolean(KEY_ISOLATE_LOCAL_PROXY, false)
+        set(value) = prefs.edit().putBoolean(KEY_ISOLATE_LOCAL_PROXY, value).apply()
 
     fun toggleAppPackage(packageName: String) {
         val current = perAppVpnPackages.toMutableSet()

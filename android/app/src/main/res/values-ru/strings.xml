@@ -47,6 +47,8 @@
     <string name="opensource_desc">desk.everty.ru/opensource • Экосистема открытых проектов</string>
     <string name="github_title">GitHub • Следите за обновлениями</string>
     <string name="github_desc">github.com/vaalimusic/EvertyMultiLink</string>
+    <string name="telegram_title">Сообщество в Telegram</string>
+    <string name="telegram_desc">t.me/evertymultilink • Официальная группа</string>
 
     <!-- Updates -->
     <string name="update_title">Обновление приложения</string>
@@ -56,4 +58,13 @@
     <string name="update_latest">У вас установлена актуальная версия.</string>
     <string name="btn_update">Обновить</string>
     <string name="btn_check_update">Проверить</string>
+
+    <!-- Local Proxy Isolation -->
+    <string name="proxy_isolation_title">Изолировать локальный прокси</string>
+    <string name="proxy_isolation_desc">Ограничивает доступ посторонних приложений к локальным SOCKS/HTTP-прокси и API управления MultiLink.</string>
+    <string name="proxy_isolation_active">● Защита активна · SOCKS5 защищён паролем, API изолирован</string>
+    <string name="proxy_isolation_inactive">Изоляция выключена</string>
+    <string name="btn_details">[Подробнее]</string>
+    <string name="proxy_isolation_dialog_title">Изоляция локального прокси</string>
+    <string name="proxy_isolation_dialog_message">Зачем это нужно?\n\nПри раздельном туннелировании (Split Tunneling) стороннее или исключённое из VPN приложение может попытаться напрямую подключиться к локальному сокету 127.0.0.1:7890 или API управления Mihomo, чтобы пустить свой трафик через VPN в обход настроек или узнать реальный внешний IP.\n\nКак работает изоляция?\n\nПри включении этой функции MultiLink генерирует одноразовый криптографический пароль для локального SOCKS5-прокси, который знает только встроенный сервис Tun2Socks. Все остальные приложения при попытке подключения получают отказ в авторизации (407/Auth Failure). API управления защищён секретным токеном, а внешний сетевой доступ (allow-lan) отключён.</string>
 </resources>

@@ -17,7 +17,8 @@ object MihomoConfigBuilder {
         controllerSecret: String,
         policy: Policy = settings.policy,
         diagnostic: Boolean = false,
-        lanAddress: String? = null
+        lanAddress: String? = null,
+        proxyAuth: String? = null
     ): File {
         outputDir.mkdirs()
         val configFile = File(outputDir, "config.yaml")
@@ -30,6 +31,11 @@ object MihomoConfigBuilder {
         val sb = StringBuilder()
         sb.appendLine("mixed-port: 7890")
         sb.appendLine("allow-lan: false")
+        sb.appendLine("bind-address: 127.0.0.1")
+        if (!proxyAuth.isNullOrEmpty()) {
+            sb.appendLine("authentication:")
+            sb.appendLine("  - '$proxyAuth'")
+        }
         sb.appendLine("mode: rule")
         sb.appendLine("tcp-concurrent: true")
         sb.appendLine("unified-delay: true")

@@ -65,7 +65,7 @@ class HomeFragment : Fragment() {
                     if (_binding == null || !isAdded) return@runOnUiThread
                     binding.bannerUpdate.visibility = View.VISIBLE
                     binding.tvUpdateBannerText.text = getString(R.string.update_available, release.tagName)
-                    val targetUrl = release.apkUrl ?: release.htmlUrl
+                    val targetUrl = release.htmlUrl.ifEmpty { "https://github.com/vaalimusic/EvertyMultiLink/releases/latest" }
                     binding.bannerUpdate.setOnClickListener {
                         openUrl(targetUrl)
                     }

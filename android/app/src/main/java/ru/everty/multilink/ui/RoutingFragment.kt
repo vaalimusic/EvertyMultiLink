@@ -46,7 +46,52 @@ class RoutingFragment : Fragment() {
         setupSplitRu()
         setupCustomRules()
         setupPerAppVpn()
+        setupProxyIsolation()
         setupAutoUpdateAndProjectLinks()
+    }
+
+    private fun setupProxyIsolation() {
+        binding.switchProxyIsolation.isChecked = settings.isLocalProxyIsolated
+        updateProxyIsolationStatus()
+
+        binding.switchProxyIsolation.setOnCheckedChangeListener { _, isChecked ->
+            settings.isLocalProxyIsolated = isChecked
+            updateProxyIsolationStatus()
+            if (ru.everty.multilink.service.EvertyVpnService.currentState == ru.everty.multilink.service.EvertyVpnService.STATE_CONNECTED) {
+                android.widget.Toast.makeText(
+                    requireContext(),
+                    "Переподключитесь к VPN для применения настроек изоляции",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+
+        binding.btnProxyIsolationDetails.setOnClickListener {
+            showProxyIsolationDialog()
+        }
+    }
+
+    private fun updateProxyIsolationStatus() {
+        if (_binding == null) return
+        if (settings.isLocalProxyIsolated) {
+            binding.tvProxyIsolationStatus.text = getString(R.string.proxy_isolation_active)
+            binding.tvProxyIsolationStatus.setTextColor(
+                androidx.core.content.ContextCompat.getColor(requireContext(), R.color.accent_mint)
+            )
+        } else {
+            binding.tvProxyIsolationStatus.text = getString(R.string.proxy_isolation_inactive)
+            binding.tvProxyIsolationStatus.setTextColor(
+                androidx.core.content.ContextCompat.getColor(requireContext(), R.color.text_muted)
+            )
+        }
+    }
+
+    private fun showProxyIsolationDialog() {
+        androidx.appcompat.app.AlertDialog.Builder(requireContext())
+            .setTitle(R.string.proxy_isolation_dialog_title)
+            .setMessage(R.string.proxy_isolation_dialog_message)
+            .setPositiveButton("Понятно", null)
+            .show()
     }
 
     private fun setupAutoUpdateAndProjectLinks() {
@@ -80,6 +125,10 @@ class RoutingFragment : Fragment() {
             openUrl("https://github.com/vaalimusic/EvertyMultiLink")
         }
 
+        binding.cardTelegramLink.setOnClickListener {
+            openUrl("https://t.me/evertymultilink")
+        }
+
         setupAppUpdates()
     }
 
@@ -103,7 +152,7 @@ class RoutingFragment : Fragment() {
                         binding.btnAppUpdateAction.text = getString(R.string.btn_update)
                         binding.btnAppUpdateAction.setTextColor(androidx.core.content.ContextCompat.getColor(requireContext(), R.color.accent_mint))
                         if (showFeedback) {
-                            val targetUrl = release.apkUrl ?: release.htmlUrl
+                            val targetUrl = release.htmlUrl.ifEmpty { "https://github.com/vaalimusic/EvertyMultiLink/releases/latest" }
                             openUrl(targetUrl)
                         }
                     } else {
@@ -119,7 +168,7 @@ class RoutingFragment : Fragment() {
 
         binding.cardAppUpdate.setOnClickListener {
             if (latestRelease != null) {
-                val targetUrl = latestRelease!!.apkUrl ?: latestRelease!!.htmlUrl
+                val targetUrl = latestRelease!!.htmlUrl.ifEmpty { "https://github.com/vaalimusic/EvertyMultiLink/releases/latest" }
                 openUrl(targetUrl)
             } else {
                 doCheck(true)
@@ -127,7 +176,7 @@ class RoutingFragment : Fragment() {
         }
         binding.btnAppUpdateAction.setOnClickListener {
             if (latestRelease != null) {
-                val targetUrl = latestRelease!!.apkUrl ?: latestRelease!!.htmlUrl
+                val targetUrl = latestRelease!!.htmlUrl.ifEmpty { "https://github.com/vaalimusic/EvertyMultiLink/releases/latest" }
                 openUrl(targetUrl)
             } else {
                 doCheck(true)
@@ -331,6 +380,7 @@ class RoutingFragment : Fragment() {
         super.onResume()
         refreshRulesList()
         updateSelectAppsButtonText()
+        updateProxyIsolationStatus()
     }
 
     override fun onDestroyView() {

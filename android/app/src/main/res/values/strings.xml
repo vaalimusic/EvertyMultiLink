@@ -47,6 +47,8 @@
     <string name="opensource_desc">desk.everty.ru/opensource • Open-source ecosystem</string>
     <string name="github_title">GitHub • Releases &amp; Source</string>
     <string name="github_desc">github.com/vaalimusic/EvertyMultiLink</string>
+    <string name="telegram_title">Telegram Community</string>
+    <string name="telegram_desc">t.me/evertymultilink • Official Group</string>
 
     <!-- Updates -->
     <string name="update_title">App Update</string>
@@ -56,4 +58,13 @@
     <string name="update_latest">You have the latest version installed.</string>
     <string name="btn_update">Update</string>
     <string name="btn_check_update">Check</string>
+
+    <!-- Local Proxy Isolation -->
+    <string name="proxy_isolation_title">Isolate local proxy</string>
+    <string name="proxy_isolation_desc">Restricts third-party and split-tunneling apps from accessing local SOCKS/HTTP proxies and the Mihomo API.</string>
+    <string name="proxy_isolation_active">● Protection active · SOCKS5 password-protected, API isolated</string>
+    <string name="proxy_isolation_inactive">Isolation disabled</string>
+    <string name="btn_details">[Details]</string>
+    <string name="proxy_isolation_dialog_title">Local Proxy Isolation</string>
+    <string name="proxy_isolation_dialog_message">Why is this needed?\n\nWith Split Tunneling, an excluded or third-party app could probe 127.0.0.1:7890 or the management API to bypass routing rules or discover the VPN exit IP.\n\nHow it works:\n\nWhen enabled, MultiLink generates a one-time cryptographic credential for the local SOCKS5 proxy known only to Tun2Socks. All other apps attempting to connect receive an authentication failure. The management API is protected with a secret token, and LAN access is strictly prohibited.</string>
 </resources>

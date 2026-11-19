@@ -130,7 +130,7 @@ impl Canvas<'_> {
             return "Подождите…".into();
         }
         match action {
-            Action::ToggleSystemProxy | Action::ToggleTun => {
+            Action::ToggleSystemProxy | Action::ToggleTun | Action::ToggleIsolateLocalProxy => {
                 "Отключите VPN для смены сетевого режима".into()
             }
             Action::Policy => "Отключите VPN для смены алгоритма выбора".into(),
@@ -157,7 +157,10 @@ impl Canvas<'_> {
     fn toggle(&mut self, x: f64, y: f64, on: bool, action: Action) {
         self.button(x, y, 54.0, "", action, false);
         let enabled = match action {
-            Action::ToggleAutostart | Action::ToggleAutoconnect | Action::ToggleRulesOnly => true,
+            Action::ToggleAutostart
+            | Action::ToggleAutoconnect
+            | Action::ToggleRulesOnly
+            | Action::ToggleIsolateLocalProxy => true,
             Action::Toggle(_) => !self.busy,
             _ => !self.locked,
         };
@@ -273,7 +276,7 @@ impl Canvas<'_> {
             | Action::Language
             | Action::SelectLanguage(_)
             | Action::HelpSection(_) => true,
-            Action::OpenAboutSite | Action::OpenGitHub | Action::OpenDonate | Action::CopyProxy => {
+            Action::OpenAboutSite | Action::OpenGitHub | Action::OpenDonate | Action::OpenTelegram | Action::CopyProxy => {
                 true
             }
             Action::ShareNode(_) | Action::ShareSubscription(_) => true,
@@ -294,7 +297,8 @@ impl Canvas<'_> {
             | Action::OpenUpdateLink
             | Action::ShowAntigravityPatches(_)
             | Action::CloseServerDiagnostics
-            | Action::CloseAntigravityServersCheck => true,
+            | Action::CloseAntigravityServersCheck
+            | Action::ShowProxyIsolationDetails => true,
             Action::Connect
             | Action::Close
             | Action::Paste
@@ -551,7 +555,7 @@ impl App {
             Page::Subscriptions => self.settings.subscriptions.len(),
             Page::Help => help::COUNT,
             Page::Settings => {
-                let total_content_height: f64 = 940.0;
+                let total_content_height: f64 = 1010.0;
                 let step: f64 = 35.0;
                 (total_content_height / step).ceil() as usize
             }
@@ -1456,12 +1460,20 @@ impl App {
                             .unwrap_or_default()
                             .as_secs();
                         let label = if expiry <= now {
-                            "Срок истёк".into()
+                            "⚠️ Срок истёк".into()
                         } else {
-                            format!("Осталось дней: {}", (expiry - now).div_ceil(86400))
+                            let days = (expiry - now).div_ceil(86400);
+                            let date_str = chrono::DateTime::from_timestamp(expiry as i64, 0)
+                                .map(|dt| dt.format("%d.%m.%Y").to_string())
+                                .unwrap_or_default();
+                            if !date_str.is_empty() {
+                                format!("⏳ {days} дн. (до {date_str})")
+                            } else {
+                                format!("⏳ Осталось: {days} дн.")
+                            }
                         };
                         c.text(
-                            x + width - 225.0,
+                            x + width - 250.0,
                             y + 65.0,
                             &label,
                             12.0,
@@ -1524,25 +1536,33 @@ impl App {
                 c.button(
                     x + 28.0,
                     388.0,
-                    226.0,
-                    "♥ Поддержать проект ↗",
+                    216.0,
+                    "♥ Поддержать ↗",
                     Action::OpenDonate,
                     true,
                 );
                 c.button(
-                    x + 262.0,
+                    x + 252.0,
                     388.0,
-                    195.0,
-                    "desk.everty.ru ↗",
+                    150.0,
+                    "Everty ↗",
                     Action::OpenAboutSite,
                     false,
                 );
                 c.button(
-                    x + 465.0,
+                    x + 410.0,
                     388.0,
-                    140.0,
+                    120.0,
                     "GitHub ↗",
                     Action::OpenGitHub,
+                    false,
+                );
+                c.button(
+                    x + 538.0,
+                    388.0,
+                    150.0,
+                    "✈ Telegram ↗",
+                    Action::OpenTelegram,
                     false,
                 );
                 c.text(
@@ -1965,7 +1985,7 @@ impl App {
 
                 // Card 1: Network Connection Modes
                 let y1 = 125.0 - scroll_y;
-                c.card(x, y1, card_w, 212.0);
+                c.card(x, y1, card_w, 280.0);
                 c.text(x + 24.0, y1 + 15.0, "Подключение", 17.0, TEXT, true);
                 c.text(
                     x + 24.0,
@@ -2040,9 +2060,56 @@ impl App {
                     self.settings.rules_only,
                     Action::ToggleRulesOnly,
                 );
+                c.line(x + 24.0, y1 + 200.0, card_w - 48.0);
+                c.text(
+                    x + 24.0,
+                    y1 + 212.0,
+                    "Изолировать локальный прокси",
+                    14.0,
+                    TEXT,
+                    true,
+                );
+                c.text(
+                    x + 24.0,
+                    y1 + 233.0,
+                    "Ограничить доступ сторонних приложений к SOCKS/HTTP и API.",
+                    11.0,
+                    MUTED,
+                    false,
+                );
+                let (iso_active, iso_desc) =
+                    multilink_mihomo::proxy_isolation_status(&self.settings, self.connected);
+                c.text(
+                    x + 24.0,
+                    y1 + 254.0,
+                    iso_desc,
+                    10.5,
+                    if iso_active {
+                        ACCENT
+                    } else if self.settings.isolate_local_proxy {
+                        Color::rgba(241, 194, 92, 255)
+                    } else {
+                        MUTED
+                    },
+                    false,
+                );
+                c.button(
+                    x + card_w - 188.0,
+                    y1 + 216.0,
+                    108.0,
+                    "Подробнее",
+                    Action::ShowProxyIsolationDetails,
+                    false,
+                );
+                c.toggle(
+                    x + card_w - 68.0,
+                    y1 + 219.0,
+                    self.settings.isolate_local_proxy,
+                    Action::ToggleIsolateLocalProxy,
+                );
 
                 // Card 2: Autostart & Autoconnect
-                let y2 = 349.0 - scroll_y;
+                let y2 = 417.0 - scroll_y;
                 c.card(x, y2, card_w, 148.0);
                 c.text(x + 24.0, y2 + 15.0, "Запуск программы", 16.0, TEXT, true);
                 c.text(
@@ -2100,7 +2167,7 @@ impl App {
                 );
 
                 // Card 3: PIN Protection
-                let y3 = 509.0 - scroll_y;
+                let y3 = 577.0 - scroll_y;
                 c.card(x, y3, card_w, 70.0);
                 let pin_active = self.settings.pin_code.is_some();
                 c.text(
@@ -2170,7 +2237,7 @@ impl App {
                 }
 
                 // Card 4: Server Selection Policy
-                let y4 = 591.0 - scroll_y;
+                let y4 = 659.0 - scroll_y;
                 c.card(x, y4, card_w, 70.0);
                 c.text(
                     x + 24.0,
@@ -2197,7 +2264,7 @@ impl App {
                 );
 
                 // Card 5: App Updates (GitHub Releases)
-                let y5 = 673.0 - scroll_y;
+                let y5 = 741.0 - scroll_y;
                 c.card(x, y5, card_w, 70.0);
                 c.text(
                     x + 24.0,
@@ -2251,7 +2318,7 @@ impl App {
                 }
 
                 // Card 6: Language
-                let y6 = 755.0 - scroll_y;
+                let y6 = 823.0 - scroll_y;
                 c.card(x, y6, card_w, 64.0);
                 c.text(x + 24.0, y6 + 22.0, "Язык интерфейса:", 14.0, TEXT, true);
                 c.text(
@@ -2271,7 +2338,7 @@ impl App {
                 );
 
                 // Card 7: Backup & Restore
-                let y7 = 831.0 - scroll_y;
+                let y7 = 899.0 - scroll_y;
                 c.card(x, y7, card_w, 70.0);
                 c.text(
                     x + 24.0,
@@ -2307,7 +2374,7 @@ impl App {
                 );
 
                 // Bottom notes & actions
-                let gateway_y = 915.0 - scroll_y;
+                let gateway_y = 983.0 - scroll_y;
                 c.card(x, gateway_y, card_w, 90.0);
                 c.text(
                     x + 24.0,
@@ -2349,7 +2416,7 @@ impl App {
                         false,
                     );
                 }
-                let y8 = 1020.0 - scroll_y;
+                let y8 = 1088.0 - scroll_y;
                 c.text(
                     x,
                     y8 + 8.0,
@@ -2445,10 +2512,96 @@ impl App {
             let modal_height = match modal {
                 Modal::Rule | Modal::ProcessRule | Modal::RuRule => 360.0,
                 Modal::ShareQr { .. } | Modal::LanSync { .. } => 420.0,
+                Modal::ProxyIsolationDetails => 360.0,
                 _ => 320.0,
             };
             let my = (h - modal_height) / 2.0;
             c.card(mx, my, 660.0, modal_height);
+            if matches!(modal, Modal::ProxyIsolationDetails) {
+                c.text(
+                    mx + 28.0,
+                    my + 24.0,
+                    "Изоляция локального прокси",
+                    21.0,
+                    TEXT,
+                    true,
+                );
+                c.text(
+                    mx + 28.0,
+                    my + 54.0,
+                    "Защита от утечек и обхода ограничений Split Tunneling",
+                    12.0,
+                    MUTED,
+                    false,
+                );
+                c.text(
+                    mx + 28.0,
+                    my + 86.0,
+                    "1. Зачем это нужно?",
+                    14.0,
+                    TEXT,
+                    true,
+                );
+                c.text(
+                    mx + 28.0,
+                    my + 108.0,
+                    "Приложения, исключённые из VPN (DIRECT), могут сканировать порт 127.0.0.1:17890\nили API управления, чтобы обойти маршрутизацию и узнать внешний IP VPN-сервера.",
+                    12.0,
+                    MUTED,
+                    false,
+                );
+                c.text(
+                    mx + 28.0,
+                    my + 152.0,
+                    "2. Как работает изоляция?",
+                    14.0,
+                    TEXT,
+                    true,
+                );
+                c.text(
+                    mx + 28.0,
+                    my + 174.0,
+                    "В режиме TUN отдельный порт 17890 полностью отключается (нет слушателя на сокете),\nа API управления защищается криптографическим токеном.",
+                    12.0,
+                    MUTED,
+                    false,
+                );
+                c.text(
+                    mx + 28.0,
+                    my + 218.0,
+                    "3. Текущий статус защиты:",
+                    14.0,
+                    TEXT,
+                    true,
+                );
+                let (iso_active, iso_desc) =
+                    multilink_mihomo::proxy_isolation_status(&self.settings, self.connected);
+                c.text(
+                    mx + 28.0,
+                    my + 242.0,
+                    iso_desc,
+                    13.0,
+                    if iso_active {
+                        ACCENT
+                    } else if self.settings.isolate_local_proxy {
+                        Color::rgba(241, 194, 92, 255)
+                    } else {
+                        MUTED
+                    },
+                    true,
+                );
+                c.button(
+                    mx + 483.0,
+                    my + 304.0,
+                    149.0,
+                    "Понятно",
+                    Action::Close,
+                    true,
+                );
+                self.input_rect = None;
+                self.hits = c.hits;
+                return c.b.finish();
+            }
             if let Modal::ShareQr {
                 title,
                 content,

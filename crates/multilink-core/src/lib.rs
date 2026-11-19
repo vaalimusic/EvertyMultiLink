@@ -86,86 +86,192 @@ pub struct Node {
 }
 
 impl Node {
-    /// Android LAN sharing identifies an endpoint by server:port:uuid.
+    /// Android LAN sharing identifies an endpoint by server:port:auth.
     pub fn subscription_signature(&self) -> Option<String> {
-        Some(format!(
-            "{}:{}:{}",
-            self.proxy.get(Value::from("server"))?.as_str()?,
-            self.proxy.get(Value::from("port"))?.as_u64()?,
-            self.proxy.get(Value::from("uuid"))?.as_str()?
-        ))
-    }
-    pub fn to_vless_uri(&self) -> Option<String> {
-        let uuid = self.proxy.get(Value::from("uuid"))?.as_str()?;
         let server = self.proxy.get(Value::from("server"))?.as_str()?;
         let port = self.proxy.get(Value::from("port"))?.as_u64()?;
-        let mut query = Vec::new();
-        if let Some(network) = self
+        let auth = self
             .proxy
-            .get(Value::from("network"))
-            .and_then(Value::as_str)
-        {
-            query.push(format!("type={network}"));
-        }
-        let tls = self
-            .proxy
-            .get(Value::from("tls"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let reality = self
-            .proxy
-            .get(Value::from("reality-opts"))
-            .and_then(Value::as_mapping);
-        if let Some(ro) = reality {
-            query.push("security=reality".to_string());
-            if let Some(pbk) = ro.get(Value::from("public-key")).and_then(Value::as_str) {
-                query.push(format!("pbk={pbk}"));
-            }
-            if let Some(sid) = ro.get(Value::from("short-id")).and_then(Value::as_str) {
-                query.push(format!("sid={sid}"));
-            }
-            if let Some(spx) = &self.spider_x {
-                query.push(format!("spx={spx}"));
-            }
-        } else if tls {
-            query.push("security=tls".to_string());
-        }
-        if let Some(sni) = self
-            .proxy
-            .get(Value::from("servername"))
-            .and_then(Value::as_str)
-        {
-            query.push(format!("sni={sni}"));
-        }
-        if let Some(fp) = self
-            .proxy
-            .get(Value::from("client-fingerprint"))
-            .and_then(Value::as_str)
-        {
-            query.push(format!("fp={fp}"));
-        }
-        if let Some(flow) = self.proxy.get(Value::from("flow")).and_then(Value::as_str) {
-            query.push(format!("flow={flow}"));
-        }
-        if let Some(ws) = self
-            .proxy
-            .get(Value::from("ws-opts"))
-            .and_then(Value::as_mapping)
-        {
-            if let Some(path) = ws.get(Value::from("path")).and_then(Value::as_str) {
-                let encoded_path =
-                    url::form_urlencoded::byte_serialize(path.as_bytes()).collect::<String>();
-                query.push(format!("path={encoded_path}"));
-            }
-        }
-        let q = if query.is_empty() {
-            String::new()
-        } else {
-            format!("?{}", query.join("&"))
-        };
+            .get(Value::from("uuid"))
+            .or_else(|| self.proxy.get(Value::from("password")))?
+            .as_str()?;
+        Some(format!("{server}:{port}:{auth}"))
+    }
+    pub fn to_vless_uri(&self) -> Option<String> {
+        self.to_uri()
+    }
+    pub fn to_uri(&self) -> Option<String> {
+        let proto = self.proxy.get(Value::from("type"))?.as_str()?;
+        let server = self.proxy.get(Value::from("server"))?.as_str()?;
+        let port = self.proxy.get(Value::from("port"))?.as_u64()?;
         let encoded_name =
             url::form_urlencoded::byte_serialize(self.name.as_bytes()).collect::<String>();
-        Some(format!("vless://{uuid}@{server}:{port}{q}#{encoded_name}"))
+        match proto {
+            "vless" => {
+                let uuid = self.proxy.get(Value::from("uuid"))?.as_str()?;
+                let mut query = Vec::new();
+                if let Some(network) = self
+                    .proxy
+                    .get(Value::from("network"))
+                    .and_then(Value::as_str)
+                {
+                    query.push(format!("type={network}"));
+                }
+                let tls = self
+                    .proxy
+                    .get(Value::from("tls"))
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let reality = self
+                    .proxy
+                    .get(Value::from("reality-opts"))
+                    .and_then(Value::as_mapping);
+                if let Some(ro) = reality {
+                    query.push("security=reality".to_string());
+                    if let Some(pbk) = ro.get(Value::from("public-key")).and_then(Value::as_str) {
+                        query.push(format!("pbk={pbk}"));
+                    }
+                    if let Some(sid) = ro.get(Value::from("short-id")).and_then(Value::as_str) {
+                        query.push(format!("sid={sid}"));
+                    }
+                    if let Some(spx) = &self.spider_x {
+                        query.push(format!("spx={spx}"));
+                    }
+                } else if tls {
+                    query.push("security=tls".to_string());
+                }
+                if let Some(sni) = self
+                    .proxy
+                    .get(Value::from("servername"))
+                    .and_then(Value::as_str)
+                {
+                    query.push(format!("sni={sni}"));
+                }
+                if let Some(fp) = self
+                    .proxy
+                    .get(Value::from("client-fingerprint"))
+                    .and_then(Value::as_str)
+                {
+                    query.push(format!("fp={fp}"));
+                }
+                if let Some(flow) = self.proxy.get(Value::from("flow")).and_then(Value::as_str) {
+                    query.push(format!("flow={flow}"));
+                }
+                if let Some(ws) = self
+                    .proxy
+                    .get(Value::from("ws-opts"))
+                    .and_then(Value::as_mapping)
+                {
+                    if let Some(path) = ws.get(Value::from("path")).and_then(Value::as_str) {
+                        let encoded_path =
+                            url::form_urlencoded::byte_serialize(path.as_bytes()).collect::<String>();
+                        query.push(format!("path={encoded_path}"));
+                    }
+                }
+                if let Some(xh) = self
+                    .proxy
+                    .get(Value::from("xhttp-opts"))
+                    .and_then(Value::as_mapping)
+                {
+                    if let Some(path) = xh.get(Value::from("path")).and_then(Value::as_str) {
+                        let encoded_path =
+                            url::form_urlencoded::byte_serialize(path.as_bytes()).collect::<String>();
+                        query.push(format!("path={encoded_path}"));
+                    }
+                }
+                let q = if query.is_empty() {
+                    String::new()
+                } else {
+                    format!("?{}", query.join("&"))
+                };
+                Some(format!("vless://{uuid}@{server}:{port}{q}#{encoded_name}"))
+            }
+            "hysteria2" => {
+                let password = self
+                    .proxy
+                    .get(Value::from("password"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let mut query = Vec::new();
+                if let Some(sni) = self.proxy.get(Value::from("sni")).and_then(Value::as_str) {
+                    query.push(format!("sni={sni}"));
+                }
+                if let Some(obfs) = self.proxy.get(Value::from("obfs")).and_then(Value::as_str) {
+                    query.push(format!("obfs={obfs}"));
+                }
+                if let Some(obfs_pw) = self
+                    .proxy
+                    .get(Value::from("obfs-password"))
+                    .and_then(Value::as_str)
+                {
+                    query.push(format!("obfs-password={obfs_pw}"));
+                }
+                let q = if query.is_empty() {
+                    String::new()
+                } else {
+                    format!("?{}", query.join("&"))
+                };
+                Some(format!("hysteria2://{password}@{server}:{port}{q}#{encoded_name}"))
+            }
+            "trojan" => {
+                let password = self.proxy.get(Value::from("password")).and_then(Value::as_str)?;
+                let mut query = Vec::new();
+                if let Some(sni) = self.proxy.get(Value::from("sni")).and_then(Value::as_str) {
+                    query.push(format!("sni={sni}"));
+                }
+                if let Some(net) = self.proxy.get(Value::from("network")).and_then(Value::as_str) {
+                    query.push(format!("type={net}"));
+                }
+                let q = if query.is_empty() {
+                    String::new()
+                } else {
+                    format!("?{}", query.join("&"))
+                };
+                Some(format!("trojan://{password}@{server}:{port}{q}#{encoded_name}"))
+            }
+            "ss" => {
+                let cipher = self.proxy.get(Value::from("cipher")).and_then(Value::as_str)?;
+                let password = self.proxy.get(Value::from("password")).and_then(Value::as_str)?;
+                let user_info = general_purpose::STANDARD.encode(format!("{cipher}:{password}"));
+                Some(format!("ss://{user_info}@{server}:{port}#{encoded_name}"))
+            }
+            "vmess" => {
+                let uuid = self.proxy.get(Value::from("uuid")).and_then(Value::as_str)?;
+                let net = self
+                    .proxy
+                    .get(Value::from("network"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("tcp");
+                let tls = if self
+                    .proxy
+                    .get(Value::from("tls"))
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
+                    "tls"
+                } else {
+                    ""
+                };
+                let sni = self
+                    .proxy
+                    .get(Value::from("servername"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let obj = serde_json::json!({
+                    "v": "2",
+                    "ps": self.name,
+                    "add": server,
+                    "port": port,
+                    "id": uuid,
+                    "net": net,
+                    "tls": tls,
+                    "sni": sni,
+                });
+                let encoded = general_purpose::STANDARD.encode(obj.to_string());
+                Some(format!("vmess://{encoded}"))
+            }
+            _ => None,
+        }
     }
 }
 fn default_manual_node() -> bool {
@@ -239,6 +345,8 @@ pub struct Settings {
     pub rules_only: bool,
     #[serde(default)]
     pub pin_code: Option<String>,
+    #[serde(default)]
+    pub isolate_local_proxy: bool,
 }
 fn default_smart_tolerance() -> u32 {
     100
@@ -328,6 +436,7 @@ impl Default for Settings {
             autoconnect: false,
             rules_only: false,
             pin_code: None,
+            isolate_local_proxy: false,
         }
     }
 }
@@ -461,7 +570,7 @@ pub fn parse_subscription(input: &str) -> Result<Vec<Node>, String> {
             }
         }
     }
-    if input.starts_with("vless://") {
+    if is_node_uri(input) {
         return parse_lines(input);
     }
     if let Ok(value) = serde_yaml::from_str::<Value>(input) {
@@ -469,8 +578,9 @@ pub fn parse_subscription(input: &str) -> Result<Vec<Node>, String> {
             let mut nodes = Vec::new();
             for item in items {
                 let mut proxy = item.as_mapping().cloned().ok_or("Некорректный узел YAML")?;
-                if proxy.get("type").and_then(Value::as_str) != Some("vless") {
-                    return Err("Поддерживаются только VLESS-узлы".into());
+                let proto = proxy.get("type").and_then(Value::as_str).unwrap_or("");
+                if !["vless", "hysteria2", "trojan", "ss", "vmess"].contains(&proto) {
+                    return Err(format!("Неподдерживаемый протокол YAML: {proto}"));
                 }
                 let name = proxy
                     .get("name")
@@ -491,13 +601,11 @@ pub fn parse_subscription(input: &str) -> Result<Vec<Node>, String> {
                 if !(1..=65535).contains(&port) {
                     return Err("Некорректный порт".into());
                 }
-                uuid::Uuid::parse_str(
-                    proxy
-                        .get("uuid")
-                        .and_then(Value::as_str)
-                        .ok_or("Нет UUID")?,
-                )
-                .map_err(|_| "Некорректный UUID")?;
+                if ["vless", "vmess"].contains(&proto) {
+                    if let Some(u) = proxy.get("uuid").and_then(Value::as_str) {
+                        uuid::Uuid::parse_str(u).map_err(|_| "Некорректный UUID")?;
+                    }
+                }
                 proxy.remove(Value::from("name"));
                 nodes.push(Node {
                     name,
@@ -521,11 +629,24 @@ pub fn parse_subscription(input: &str) -> Result<Vec<Node>, String> {
         &general_purpose::URL_SAFE_NO_PAD,
     ] {
         if let Ok(bytes) = engine.decode(&compact) {
-            let text = String::from_utf8(bytes).map_err(|_| "Подписка не в UTF-8")?;
-            return parse_lines(&text);
+            if let Ok(text) = String::from_utf8(bytes) {
+                if text.lines().any(is_node_uri) {
+                    return parse_lines(&text);
+                }
+            }
         }
     }
-    Err("Ожидается VLESS URI, Base64-список или Mihomo YAML".into())
+    Err("Ожидается URI узла (VLESS/Hysteria2/Trojan/SS/VMess), Base64-список или Mihomo YAML".into())
+}
+
+pub fn is_node_uri(input: &str) -> bool {
+    let input = input.trim();
+    input.starts_with("vless://")
+        || input.starts_with("hysteria2://")
+        || input.starts_with("hy2://")
+        || input.starts_with("trojan://")
+        || input.starts_with("ss://")
+        || input.starts_with("vmess://")
 }
 
 fn parse_lines(input: &str) -> Result<Vec<Node>, String> {
@@ -548,7 +669,25 @@ fn finish(nodes: Vec<Node>) -> Result<Vec<Node>, String> {
 fn put(map: &mut Mapping, key: &str, value: impl Into<Value>) {
     map.insert(Value::from(key), value.into());
 }
-fn parse_uri(input: &str) -> Result<Node, String> {
+
+pub fn parse_uri(input: &str) -> Result<Node, String> {
+    let input = input.trim();
+    if input.starts_with("vless://") {
+        parse_vless_uri(input)
+    } else if input.starts_with("hysteria2://") || input.starts_with("hy2://") {
+        parse_hysteria2(input)
+    } else if input.starts_with("trojan://") {
+        parse_trojan(input)
+    } else if input.starts_with("ss://") {
+        parse_ss(input)
+    } else if input.starts_with("vmess://") {
+        parse_vmess(input)
+    } else {
+        Err("Поддерживаются протоколы: VLESS, Hysteria2, Trojan, Shadowsocks, VMess".into())
+    }
+}
+
+fn parse_vless_uri(input: &str) -> Result<Node, String> {
     let uri = Url::parse(input).map_err(|_| "Некорректная VLESS-ссылка")?;
     if uri.scheme() != "vless" {
         return Err("Поддерживаются только vless:// ссылки".into());
@@ -565,9 +704,9 @@ fn parse_uri(input: &str) -> Result<Node, String> {
     let mut params = std::collections::HashMap::new();
     if uri
         .query_pairs()
-        .any(|(key, value)| key == "type" && !["", "tcp", "ws", "grpc"].contains(&value.as_ref()))
+        .any(|(key, value)| key == "type" && !["", "tcp", "ws", "grpc", "xhttp", "h2", "http"].contains(&value.as_ref()))
     {
-        return Err("Поддерживаются TCP, WebSocket и gRPC; транспорт узла несовместим".into());
+        return Err("Поддерживаются TCP, WebSocket, gRPC, XHTTP и H2; транспорт узла несовместим".into());
     }
     for (key, value) in uri.query_pairs() {
         if key == "fm" {
@@ -592,6 +731,8 @@ fn parse_uri(input: &str) -> Result<Node, String> {
             "alpn",
             "spx",
             "support-x25519mlkem768",
+            "mode",
+            "extra",
         ]
         .contains(&key.as_ref())
         {
@@ -605,9 +746,6 @@ fn parse_uri(input: &str) -> Result<Node, String> {
         }
     }
     let get = |key: &str| params.get(key).map(String::as_str).unwrap_or("");
-    if !["", "none"].contains(&get("encryption")) {
-        return Err("Неподдерживаемое шифрование VLESS".into());
-    }
     let mut p = Mapping::new();
     put(&mut p, "type", "vless");
     put(&mut p, "server", host);
@@ -691,7 +829,49 @@ fn parse_uri(input: &str) -> Result<Node, String> {
             put(&mut opts, "grpc-service-name", get("serviceName"));
             put(&mut p, "grpc-opts", Value::Mapping(opts));
         }
-        _ => return Err("Поддерживаются TCP, WebSocket и gRPC".into()),
+        "xhttp" => {
+            put(&mut p, "network", "xhttp");
+            let mut opts = Mapping::new();
+            put(
+                &mut opts,
+                "path",
+                if get("path").is_empty() {
+                    "/"
+                } else {
+                    get("path")
+                },
+            );
+            if !get("host").is_empty() {
+                let mut headers = Mapping::new();
+                put(&mut headers, "Host", get("host"));
+                put(&mut opts, "headers", Value::Mapping(headers));
+            }
+            if !get("mode").is_empty() {
+                put(&mut opts, "mode", get("mode"));
+            }
+            if !get("extra").is_empty() {
+                put(&mut opts, "extra", get("extra"));
+            }
+            put(&mut p, "xhttp-opts", Value::Mapping(opts));
+        }
+        "h2" | "http" => {
+            put(&mut p, "network", "h2");
+            let mut opts = Mapping::new();
+            put(
+                &mut opts,
+                "path",
+                if get("path").is_empty() {
+                    "/"
+                } else {
+                    get("path")
+                },
+            );
+            if !get("host").is_empty() {
+                put(&mut opts, "host", Value::Sequence(vec![Value::from(get("host"))]));
+            }
+            put(&mut p, "h2-opts", Value::Mapping(opts));
+        }
+        _ => return Err("Поддерживаются TCP, WebSocket, gRPC, XHTTP и H2".into()),
     }
     let name = uri
         .fragment()
@@ -710,12 +890,314 @@ fn parse_uri(input: &str) -> Result<Node, String> {
     })
 }
 
+fn parse_hysteria2(input: &str) -> Result<Node, String> {
+    let uri = Url::parse(input).map_err(|_| "Некорректная Hysteria2-ссылка")?;
+    let host = uri
+        .host_str()
+        .ok_or("Не указан сервер")?
+        .trim_matches(['[', ']']);
+    let port = uri.port().unwrap_or(443);
+    if port == 0 {
+        return Err("Порт не может быть нулевым".into());
+    }
+    let mut p = Mapping::new();
+    put(&mut p, "type", "hysteria2");
+    put(&mut p, "server", host);
+    put(&mut p, "port", port as u64);
+    if !uri.username().is_empty() {
+        put(&mut p, "password", uri.username());
+    }
+    let mut params = std::collections::HashMap::new();
+    for (key, value) in uri.query_pairs() {
+        params.insert(key.into_owned(), value.into_owned());
+    }
+    let get = |key: &str| params.get(key).map(String::as_str).unwrap_or("");
+    if !get("sni").is_empty() {
+        put(&mut p, "sni", get("sni"));
+    }
+    if !get("obfs").is_empty() {
+        put(&mut p, "obfs", get("obfs"));
+        if !get("obfs-password").is_empty() {
+            put(&mut p, "obfs-password", get("obfs-password"));
+        }
+    }
+    if !get("alpn").is_empty() {
+        put(
+            &mut p,
+            "alpn",
+            Value::Sequence(get("alpn").split(',').map(Value::from).collect()),
+        );
+    }
+    if matches!(get("insecure"), "1" | "true") || matches!(get("allowInsecure"), "1" | "true") {
+        put(&mut p, "skip-cert-verify", true);
+    }
+    let name = uri
+        .fragment()
+        .filter(|v| !v.is_empty())
+        .map(percent_decode)
+        .unwrap_or_else(|| host.to_owned());
+    Ok(Node {
+        name,
+        enabled: true,
+        proxy: p,
+        spider_x: None,
+        delay: None,
+        quality: NodeQuality::default(),
+        subscription_ids: Vec::new(),
+        manually_added: true,
+    })
+}
+
+fn parse_trojan(input: &str) -> Result<Node, String> {
+    let uri = Url::parse(input).map_err(|_| "Некорректная Trojan-ссылка")?;
+    let host = uri
+        .host_str()
+        .ok_or("Не указан сервер")?
+        .trim_matches(['[', ']']);
+    let port = uri.port().unwrap_or(443);
+    if port == 0 {
+        return Err("Порт не может быть нулевым".into());
+    }
+    let password = uri.username();
+    if password.is_empty() {
+        return Err("Нет пароля Trojan".into());
+    }
+    let mut p = Mapping::new();
+    put(&mut p, "type", "trojan");
+    put(&mut p, "server", host);
+    put(&mut p, "port", port as u64);
+    put(&mut p, "password", password);
+    put(&mut p, "udp", true);
+    let mut params = std::collections::HashMap::new();
+    for (key, value) in uri.query_pairs() {
+        params.insert(key.into_owned(), value.into_owned());
+    }
+    let get = |key: &str| params.get(key).map(String::as_str).unwrap_or("");
+    if !get("sni").is_empty() {
+        put(&mut p, "sni", get("sni"));
+    }
+    if matches!(get("allowInsecure"), "1" | "true") || matches!(get("insecure"), "1" | "true") {
+        put(&mut p, "skip-cert-verify", true);
+    }
+    if !get("alpn").is_empty() {
+        put(
+            &mut p,
+            "alpn",
+            Value::Sequence(get("alpn").split(',').map(Value::from).collect()),
+        );
+    }
+    match get("type") {
+        "ws" => {
+            put(&mut p, "network", "ws");
+            let mut opts = Mapping::new();
+            put(
+                &mut opts,
+                "path",
+                if get("path").is_empty() {
+                    "/"
+                } else {
+                    get("path")
+                },
+            );
+            if !get("host").is_empty() {
+                let mut headers = Mapping::new();
+                put(&mut headers, "Host", get("host"));
+                put(&mut opts, "headers", Value::Mapping(headers));
+            }
+            put(&mut p, "ws-opts", Value::Mapping(opts));
+        }
+        "grpc" => {
+            put(&mut p, "network", "grpc");
+            let mut opts = Mapping::new();
+            put(&mut opts, "grpc-service-name", get("serviceName"));
+            put(&mut p, "grpc-opts", Value::Mapping(opts));
+        }
+        _ => {}
+    }
+    let name = uri
+        .fragment()
+        .filter(|v| !v.is_empty())
+        .map(percent_decode)
+        .unwrap_or_else(|| host.to_owned());
+    Ok(Node {
+        name,
+        enabled: true,
+        proxy: p,
+        spider_x: None,
+        delay: None,
+        quality: NodeQuality::default(),
+        subscription_ids: Vec::new(),
+        manually_added: true,
+    })
+}
+
+fn parse_ss(input: &str) -> Result<Node, String> {
+    let raw = input.trim_start_matches("ss://");
+    let (body, fragment) = match raw.split_once('#') {
+        Some((b, f)) => (b, Some(f)),
+        None => (raw, None),
+    };
+    let name = fragment.map(percent_decode).unwrap_or_default();
+    let (user_info, host_port) = if let Some((u, hp)) = body.split_once('@') {
+        let decoded_user = decode_base64_str(u).unwrap_or_else(|| u.to_string());
+        (decoded_user, hp.to_string())
+    } else {
+        let decoded = decode_base64_str(body).ok_or("Некорректная ссылка Shadowsocks")?;
+        let (u, hp) = decoded.split_once('@').ok_or("Некорректная ссылка Shadowsocks")?;
+        (u.to_string(), hp.to_string())
+    };
+    let (cipher, password) = user_info
+        .split_once(':')
+        .ok_or("Нет шифра/пароля Shadowsocks")?;
+    let (host, port_str) = host_port
+        .rsplit_once(':')
+        .ok_or("Не указан порт Shadowsocks")?;
+    let host = host.trim_matches(['[', ']']);
+    let port: u16 = port_str
+        .split('?')
+        .next()
+        .unwrap_or(port_str)
+        .parse()
+        .map_err(|_| "Некорректный порт")?;
+    if port == 0 {
+        return Err("Порт не может быть нулевым".into());
+    }
+    let mut p = Mapping::new();
+    put(&mut p, "type", "ss");
+    put(&mut p, "server", host);
+    put(&mut p, "port", port as u64);
+    put(&mut p, "cipher", cipher);
+    put(&mut p, "password", password);
+    put(&mut p, "udp", true);
+    let node_name = if name.is_empty() {
+        host.to_owned()
+    } else {
+        name
+    };
+    Ok(Node {
+        name: node_name,
+        enabled: true,
+        proxy: p,
+        spider_x: None,
+        delay: None,
+        quality: NodeQuality::default(),
+        subscription_ids: Vec::new(),
+        manually_added: true,
+    })
+}
+
+fn parse_vmess(input: &str) -> Result<Node, String> {
+    let b64 = input.trim_start_matches("vmess://").trim();
+    let decoded = decode_base64_str(b64).ok_or("Не удалось декодировать VMess-ссылку")?;
+    let v: serde_json::Value =
+        serde_json::from_str(&decoded).map_err(|_| "Некорректный JSON VMess")?;
+    let host = v
+        .get("add")
+        .and_then(|x| x.as_str())
+        .ok_or("Не указан адрес сервера")?;
+    let port = match v.get("port") {
+        Some(serde_json::Value::Number(n)) => n.as_u64().ok_or("Некорректный порт")? as u16,
+        Some(serde_json::Value::String(s)) => s.parse::<u16>().map_err(|_| "Некорректный порт")?,
+        _ => return Err("Не указан порт".into()),
+    };
+    if port == 0 {
+        return Err("Порт не может быть нулевым".into());
+    }
+    let uuid_str = v
+        .get("id")
+        .and_then(|x| x.as_str())
+        .ok_or("Не указан UUID VMess")?;
+    uuid::Uuid::parse_str(uuid_str).map_err(|_| "Некорректный UUID VMess")?;
+    let alter_id = match v.get("aid") {
+        Some(serde_json::Value::Number(n)) => n.as_u64().unwrap_or(0),
+        Some(serde_json::Value::String(s)) => s.parse::<u64>().unwrap_or(0),
+        _ => 0,
+    };
+    let net = v.get("net").and_then(|x| x.as_str()).unwrap_or("tcp");
+    let tls = v.get("tls").and_then(|x| x.as_str()).unwrap_or("");
+    let sni = v
+        .get("sni")
+        .and_then(|x| x.as_str())
+        .or_else(|| v.get("host").and_then(|x| x.as_str()))
+        .unwrap_or("");
+    let path = v.get("path").and_then(|x| x.as_str()).unwrap_or("");
+    let name = v.get("ps").and_then(|x| x.as_str()).unwrap_or(host);
+
+    let mut p = Mapping::new();
+    put(&mut p, "type", "vmess");
+    put(&mut p, "server", host);
+    put(&mut p, "port", port as u64);
+    put(&mut p, "uuid", uuid_str);
+    put(&mut p, "alterId", alter_id);
+    put(&mut p, "cipher", "auto");
+    put(&mut p, "udp", true);
+    if tls == "tls" {
+        put(&mut p, "tls", true);
+        if !sni.is_empty() {
+            put(&mut p, "servername", sni);
+        }
+    }
+    match net {
+        "ws" => {
+            put(&mut p, "network", "ws");
+            let mut opts = Mapping::new();
+            put(
+                &mut opts,
+                "path",
+                if path.is_empty() { "/" } else { path },
+            );
+            let h = v.get("host").and_then(|x| x.as_str()).unwrap_or("");
+            if !h.is_empty() {
+                let mut headers = Mapping::new();
+                put(&mut headers, "Host", h);
+                put(&mut opts, "headers", Value::Mapping(headers));
+            }
+            put(&mut p, "ws-opts", Value::Mapping(opts));
+        }
+        "grpc" => {
+            put(&mut p, "network", "grpc");
+            let mut opts = Mapping::new();
+            put(&mut opts, "grpc-service-name", path);
+            put(&mut p, "grpc-opts", Value::Mapping(opts));
+        }
+        _ => {}
+    }
+    Ok(Node {
+        name: name.to_owned(),
+        enabled: true,
+        proxy: p,
+        spider_x: None,
+        delay: None,
+        quality: NodeQuality::default(),
+        subscription_ids: Vec::new(),
+        manually_added: true,
+    })
+}
+
+fn decode_base64_str(s: &str) -> Option<String> {
+    let clean: String = s.chars().filter(|c| !c.is_whitespace()).collect();
+    for engine in [
+        &general_purpose::STANDARD,
+        &general_purpose::STANDARD_NO_PAD,
+        &general_purpose::URL_SAFE,
+        &general_purpose::URL_SAFE_NO_PAD,
+    ] {
+        if let Ok(bytes) = engine.decode(&clean) {
+            if let Ok(res) = String::from_utf8(bytes) {
+                return Some(res);
+            }
+        }
+    }
+    None
+}
+
 pub struct ImportReport {
     pub nodes: Vec<Node>,
     /// Only positions and static parser errors: never subscription credentials.
     pub skipped: Vec<String>,
     /// Explicit compatibility changes applied to accepted nodes.
     pub warnings: Vec<String>,
+    pub expires_at: Option<u64>,
 }
 
 /// Mixed subscriptions can contain transports belonging to another engine.
@@ -727,13 +1209,14 @@ pub fn import_subscription(input: &str) -> Result<ImportReport, String> {
                 nodes,
                 skipped: Vec::new(),
                 warnings: Vec::new(),
+                expires_at: None,
             })
         }
         Err(error) if input.len() > 4 * 1024 * 1024 => return Err(error),
         Err(_) => {}
     }
     let compact: String = input.chars().filter(|c| !c.is_whitespace()).collect();
-    let decoded = if input.trim().starts_with("vless://") {
+    let decoded = if is_node_uri(input.trim()) {
         input.to_owned()
     } else {
         let mut decoded = None;
@@ -744,17 +1227,22 @@ pub fn import_subscription(input: &str) -> Result<ImportReport, String> {
             &general_purpose::URL_SAFE_NO_PAD,
         ] {
             if let Ok(bytes) = engine.decode(&compact) {
-                decoded = String::from_utf8(bytes).ok();
-                break;
+                if let Ok(s) = String::from_utf8(bytes) {
+                    if s.lines().any(is_node_uri) {
+                        decoded = Some(s);
+                        break;
+                    }
+                }
             }
         }
         match decoded {
-            Some(s) if s.trim().starts_with("vless://") => s,
+            Some(s) => s,
             _ => {
                 return parse_subscription(input).map(|nodes| ImportReport {
                     nodes,
                     skipped: Vec::new(),
                     warnings: Vec::new(),
+                    expires_at: None,
                 })
             }
         }
@@ -767,6 +1255,7 @@ pub fn import_subscription(input: &str) -> Result<ImportReport, String> {
         nodes: Vec::new(),
         skipped: Vec::new(),
         warnings: Vec::new(),
+        expires_at: None,
     };
     for (i, line) in lines.iter().enumerate() {
         let converted = without_fm(line);
@@ -1490,7 +1979,7 @@ mod tests {
     fn mixed_import_reports_rejected_nodes_without_losing_working_ones() {
         let report = import_subscription(&general_purpose::STANDARD.encode(format!(
             "{URI}\n{}\n{}",
-            URI.replace("type=ws", "type=xhttp"),
+            URI.replace("type=ws", "type=invalid_proto"),
             URI.replace("type=ws", "fm=unsupported&type=tcp")
         )))
         .unwrap();
@@ -1505,7 +1994,7 @@ mod tests {
     #[test]
     fn rejects_partial_or_lossy_import() {
         assert!(parse_subscription(&format!("{URI}\nvless://broken")).is_err());
-        assert!(parse_subscription(&URI.replace("type=ws", "type=xhttp")).is_err());
+        assert!(parse_subscription(&URI.replace("type=ws", "type=invalid_proto")).is_err());
     }
     #[cfg(target_os = "macos")]
     #[test]
@@ -1590,7 +2079,7 @@ mod tests {
             assert!(!report.warnings[0].contains("server.example"));
             assert!(!report.warnings[0].contains("tlshello"));
         }
-        assert!(import_subscription(&uri.replace("type=ws", "type=xhttp")).is_err());
+        assert!(import_subscription(&uri.replace("type=ws", "type=invalid_proto")).is_err());
         assert!(import_subscription(&uri.replace("type=ws", "other=required&type=ws")).is_err());
     }
     #[test]
@@ -1701,5 +2190,38 @@ mod tests {
         let mut n5 = n1.clone();
         n5.name = "🇩🇪 Germany Frankfurt".into();
         assert!(!is_russian_node(&n5));
+    }
+    #[test]
+    fn test_expanded_protocol_parsing() {
+        let hy2 = "hysteria2://pass123@hy2.example.com:27015?sni=hy2.example.com&obfs=salamander&obfs-password=secret#DE-Hy2";
+        let node = parse_uri(hy2).unwrap();
+        assert_eq!(node.name, "DE-Hy2");
+        assert_eq!(node.proxy.get(Value::from("type")).unwrap().as_str().unwrap(), "hysteria2");
+        assert_eq!(node.proxy.get(Value::from("password")).unwrap().as_str().unwrap(), "pass123");
+        assert_eq!(node.proxy.get(Value::from("obfs")).unwrap().as_str().unwrap(), "salamander");
+
+        let trojan = "trojan://password456@trojan.example.com:443?sni=trojan.example.com&type=ws&path=%2Fws#NL-Trojan";
+        let node2 = parse_uri(trojan).unwrap();
+        assert_eq!(node2.name, "NL-Trojan");
+        assert_eq!(node2.proxy.get(Value::from("type")).unwrap().as_str().unwrap(), "trojan");
+        assert_eq!(node2.proxy.get(Value::from("network")).unwrap().as_str().unwrap(), "ws");
+
+        let ss = "ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ=@ss.example.com:8388#US-SS";
+        let node3 = parse_uri(ss).unwrap();
+        assert_eq!(node3.name, "US-SS");
+        assert_eq!(node3.proxy.get(Value::from("type")).unwrap().as_str().unwrap(), "ss");
+        assert_eq!(node3.proxy.get(Value::from("cipher")).unwrap().as_str().unwrap(), "aes-256-gcm");
+
+        let vmess_json = r#"{"v":"2","ps":"SE-VMess","add":"vmess.example.com","port":443,"id":"00000000-0000-4000-8000-000000000001","aid":0,"net":"ws","path":"/vmess","tls":"tls","sni":"vmess.example.com"}"#;
+        let vmess = format!("vmess://{}", general_purpose::STANDARD.encode(vmess_json));
+        let node4 = parse_uri(&vmess).unwrap();
+        assert_eq!(node4.name, "SE-VMess");
+        assert_eq!(node4.proxy.get(Value::from("type")).unwrap().as_str().unwrap(), "vmess");
+        assert_eq!(node4.proxy.get(Value::from("network")).unwrap().as_str().unwrap(), "ws");
+
+        let xhttp = "vless://00000000-0000-4000-8000-000000000001@xhttp.example.com:443?type=xhttp&mode=auto&path=/xh&security=reality&pbk=x25519pbk&sid=abcd#FI-XHTTP";
+        let node5 = parse_uri(xhttp).unwrap();
+        assert_eq!(node5.name, "FI-XHTTP");
+        assert_eq!(node5.proxy.get(Value::from("network")).unwrap().as_str().unwrap(), "xhttp");
     }
 }

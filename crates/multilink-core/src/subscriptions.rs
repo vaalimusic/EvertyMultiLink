@@ -140,13 +140,14 @@ pub fn update_subscription(
     let mut matched = HashSet::new();
     let mut renamed = std::collections::HashMap::new();
     for mut node in nodes {
-        let key = fingerprint(&node);
+        let key = (fingerprint(&node), node.name.clone());
         if !matched.insert(key.clone()) {
             continue;
         }
-        if let Some(index) = by_key.get(&key) {
+        let fp = key.0;
+        if let Some(index) = by_key.get(&fp) {
             let known = &mut updated[*index];
-            if exclusive.contains(&key) && !unchanged.contains(&key) {
+            if exclusive.contains(&fp) && !unchanged.contains(&fp) {
                 let name = unique_subscription_name(&node.name, &mut names);
                 if known.name != name {
                     renamed.insert(server_route_target(&known.name), server_route_target(&name));
@@ -164,7 +165,7 @@ pub fn update_subscription(
                 node.enabled = *enabled;
             }
             node.name = unique_subscription_name(&node.name, &mut names);
-            by_key.insert(key, updated.len());
+            by_key.insert(fp, updated.len());
             updated.push(node);
         }
     }

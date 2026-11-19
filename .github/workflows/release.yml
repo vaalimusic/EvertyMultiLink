@@ -94,10 +94,12 @@ jobs:
     name: Build macOS (${{ matrix.platform }})
     runs-on: ${{ matrix.runner }}
     strategy:
+      fail-fast: false
+      max-parallel: 1
       matrix:
         include:
           - platform: Apple Silicon
-            runner: macos-15
+            runner: macos-14
             arch: arm64
           - platform: Intel
             runner: macos-15-intel
@@ -118,6 +120,7 @@ jobs:
   publish-release:
     name: Publish GitHub Release
     needs: [build-windows, build-android, build-macos]
+    if: always() && !cancelled() && needs.build-windows.result == 'success' && needs.build-android.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -137,6 +140,7 @@ jobs:
 
       - name: Download macOS Artifacts
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           pattern: macos-app-*
           merge-multiple: true

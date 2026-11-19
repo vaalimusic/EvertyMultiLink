@@ -107,6 +107,7 @@ class EvertyVpnService : VpnService() {
                     .mapNotNull { it.hostAddress }.distinct()
                 val controllerSecret = UUID.randomUUID().toString()
                 val lanAddress = if (settings.lanGatewayKey == null) null else LanGateway.address(this)
+                val proxyAuth = if (settings.isLocalProxyIsolated) "multilink:${UUID.randomUUID()}" else null
                 val configFile = MihomoConfigBuilder.generateConfig(
                     outputDir = mihomoDir,
                     settings = settings,
@@ -114,7 +115,8 @@ class EvertyVpnService : VpnService() {
                     controllerSecret = controllerSecret,
                     policy = testPolicy ?: settings.policy,
                     diagnostic = diagnostic,
-                    lanAddress = lanAddress
+                    lanAddress = lanAddress,
+                    proxyAuth = proxyAuth
                 )
                 Log.d(TAG, "Generated Mihomo config at ${configFile.absolutePath}")
 
@@ -197,7 +199,12 @@ class EvertyVpnService : VpnService() {
                     Log.d(TAG, "VPN TUN established successfully (fd=$fd), starting Tun2Socks...")
 
                     // 5. Start Tun2Socks in-process via JNI (MTU 1400 avoids mobile carrier packet fragmentation)
-                    Tun2Socks.start(fd, "socks5://127.0.0.1:7890", 1400)
+                    val socksTarget = if (proxyAuth != null) {
+                        "socks5://$proxyAuth@127.0.0.1:7890"
+                    } else {
+                        "socks5://127.0.0.1:7890"
+                    }
+                    Tun2Socks.start(fd, socksTarget, 1400)
 
                     // 6. Monitor network changes (Wi-Fi <-> Mobile Data) for smooth handover
                     try {

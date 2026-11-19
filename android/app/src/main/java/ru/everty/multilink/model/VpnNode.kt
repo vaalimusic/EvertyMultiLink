@@ -22,7 +22,12 @@ data class VpnNode(
     val outbound: Map<String, Any>? = null
 ) {
     fun getDisplayDetails(): String {
-        return "${security.uppercase()} • ${type.uppercase()} • $server:$port"
+        val proto = outbound?.get("type")?.toString()?.uppercase() ?: "VLESS"
+        return if (proto != "VLESS") {
+            "$proto • $server:$port"
+        } else {
+            "${security.uppercase()} • ${type.uppercase()} • $server:$port"
+        }
     }
 
     fun isRussianNode(): Boolean {

@@ -306,8 +306,14 @@ fn worker(rx: mpsc::Receiver<Command>, tx: UiUpdates) {
                     .then(|| input.trim().to_owned());
                 let result = if let Some(url) = &url {
                     multilink_core::subscription_url(url).and_then(|_| {
-                        multilink_mihomo::fetch_subscription(input.trim())
-                            .and_then(|s| multilink_core::import_subscription(&s))
+                        multilink_mihomo::fetch_subscription_full(input.trim(), false)
+                            .and_then(|fetched| {
+                                let mut report = multilink_core::import_subscription(&fetched.body)?;
+                                if fetched.expire.is_some() {
+                                    report.expires_at = fetched.expire;
+                                }
+                                Ok(report)
+                            })
                     })
                 } else {
                     multilink_mihomo::expand_lan_link(&input)
@@ -487,6 +493,7 @@ enum Action {
     OpenAboutSite,
     OpenGitHub,
     OpenDonate,
+    OpenTelegram,
     CopyQrContent,
     ShareNode(usize),
     ShareSubscription(u64),
@@ -523,6 +530,8 @@ enum Action {
     SelectAntigravityServer(usize),
     AntigravityCheckPage(usize),
     PingServer(usize),
+    ToggleIsolateLocalProxy,
+    ShowProxyIsolationDetails,
 }
 #[derive(Clone, PartialEq, Debug)]
 enum Modal {
@@ -551,6 +560,7 @@ enum Modal {
     },
     ServerDiagnostics(usize),
     AntigravityServersCheck,
+    ProxyIsolationDetails,
 }
 
 struct App {
@@ -698,8 +708,14 @@ impl App {
         let updates = self.updates.clone();
         let connected = self.connected;
         std::thread::spawn(move || {
-            let result = multilink_mihomo::fetch_subscription_with_proxy(&url, connected)
-                .and_then(|body| multilink_core::import_subscription(&body));
+            let result = multilink_mihomo::fetch_subscription_full(&url, connected)
+                .and_then(|fetched| {
+                    let mut report = multilink_core::import_subscription(&fetched.body)?;
+                    if fetched.expire.is_some() {
+                        report.expires_at = fetched.expire;
+                    }
+                    Ok(report)
+                });
             let _ = updates.send(Update::SubscriptionFetched(ticket, id, url, result));
         });
         self.redraw();
@@ -783,6 +799,11 @@ impl App {
                     let warning = report.warnings.first().cloned();
                     for entry in report.skipped.into_iter().chain(report.warnings) {
                         self.logs.push_front(entry);
+                    }
+                    if let Some(exp) = report.expires_at {
+                        if let Some(s) = self.settings.subscriptions.iter_mut().find(|sub| sub.id == id) {
+                            s.expires_at = Some(exp);
+                        }
                     }
                     self.save();
                     Ok((changed, warning))
@@ -1345,6 +1366,16 @@ impl App {
                                         }
                                     }
                                 }
+                                if report.expires_at.is_some() {
+                                    if let Some(subscription) = self
+                                        .settings
+                                        .subscriptions
+                                        .iter_mut()
+                                        .find(|sub| sub.id == id)
+                                    {
+                                        subscription.expires_at = report.expires_at;
+                                    }
+                                }
                                 if self.refreshing_subscription == Some(id) {
                                     self.refreshing_subscription = None;
                                     self.pending_subscription = None;
@@ -1504,6 +1535,7 @@ impl App {
                 | Action::ToggleAutostart
                 | Action::ToggleAutoconnect
                 | Action::ToggleRulesOnly
+                | Action::ToggleIsolateLocalProxy
                 | Action::ToggleLanGateway
                 | Action::ShareLanGateway
                 | Action::CopyLanGatewayKey
@@ -1603,10 +1635,11 @@ impl App {
                 self.page = page;
                 self.offset = 0;
             }
-            Action::OpenAboutSite | Action::OpenGitHub | Action::OpenDonate => {
+            Action::OpenAboutSite | Action::OpenGitHub | Action::OpenDonate | Action::OpenTelegram => {
                 let url = match action {
                     Action::OpenGitHub => "https://github.com/vaalimusic/EvertyMultiLink",
                     Action::OpenDonate => "https://boosty.to/vaali/donate",
+                    Action::OpenTelegram => "https://t.me/evertymultilink",
                     _ => "https://desk.everty.ru/opensource",
                 };
                 if multilink_platform::open_project_site(url).is_err() {
@@ -2387,17 +2420,27 @@ impl App {
                         }
                     }
                     Some(Modal::SubscriptionUrl) => {
-                        match multilink_core::subscription_url(self.edit.text()) {
-                            Ok(url) => {
-                                self.busy = true;
-                                let _ = self
-                                    .tx
-                                    .send(Command::Import(url, self.editing_subscription));
-                                self.notify(
-                                    "Проверяем новую ссылку; прежняя сохранится при ошибке…",
-                                );
+                        let text = self.edit.text().trim();
+                        if multilink_core::is_node_uri(text) {
+                            self.busy = true;
+                            let _ = self
+                                .tx
+                                .send(Command::Import(text.to_owned(), None));
+                            self.modal = None;
+                            self.notify("Обнаружен одиночный узел — добавлен в список серверов");
+                        } else {
+                            match multilink_core::subscription_url(text) {
+                                Ok(url) => {
+                                    self.busy = true;
+                                    let _ = self
+                                        .tx
+                                        .send(Command::Import(url, self.editing_subscription));
+                                    self.notify(
+                                        "Проверяем новую ссылку; прежняя сохранится при ошибке…",
+                                    );
+                                }
+                                Err(error) => self.notify(error),
                             }
-                            Err(error) => self.notify(error),
                         }
                     }
                     Some(Modal::SubscriptionName) => {
@@ -2524,6 +2567,7 @@ impl App {
                     | Some(Modal::LanSync { .. })
                     | Some(Modal::ServerDiagnostics(_))
                     | Some(Modal::AntigravityServersCheck)
+                    | Some(Modal::ProxyIsolationDetails)
                     | None => {}
                 }
             }
@@ -2672,6 +2716,31 @@ impl App {
                     });
                 }
             }
+            Action::ToggleIsolateLocalProxy => {
+                self.settings.isolate_local_proxy = !self.settings.isolate_local_proxy;
+                self.save();
+                if self.connected {
+                    let _ = self.tx.send(Command::ApplySettings(self.settings.clone()));
+                    self.notify(if self.settings.isolate_local_proxy {
+                        if !self.settings.tun {
+                            "Изоляция включена (для полной защиты требуется режим TUN)"
+                        } else {
+                            "Изоляция локального прокси активна"
+                        }
+                    } else {
+                        "Изоляция локального прокси выключена"
+                    });
+                } else {
+                    self.notify(if self.settings.isolate_local_proxy {
+                        "Изоляция локального прокси включена"
+                    } else {
+                        "Изоляция локального прокси выключена"
+                    });
+                }
+            }
+            Action::ShowProxyIsolationDetails => {
+                self.modal = Some(Modal::ProxyIsolationDetails);
+            }
             Action::OpenSetPin if !self.busy => {
                 self.modal = Some(Modal::SetPin);
                 self.edit.clear();
@@ -2707,10 +2776,7 @@ impl App {
                 });
             }
             Action::OpenUpdateLink => {
-                let url = self
-                    .update_url
-                    .as_deref()
-                    .unwrap_or("https://github.com/vaalimusic/EvertyMultiLink/releases/latest");
+                let url = "https://github.com/vaalimusic/EvertyMultiLink/releases/latest";
                 if multilink_platform::open_project_site(url).is_err() {
                     self.notify(format!("Не удалось открыть браузер: {url}"));
                 }

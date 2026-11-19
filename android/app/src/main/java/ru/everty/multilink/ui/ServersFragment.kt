@@ -208,6 +208,7 @@ class ServersFragment : Fragment() {
             if (text.startsWith("http://") || text.startsWith("https://")) {
                 dialog.dismiss()
                 (activity as? MainActivity)?.fetchSubscription(text, isManual = true)
+                Toast.makeText(requireContext(), "Обнаружена ссылка подписки — выполняется загрузка…", Toast.LENGTH_SHORT).show()
             } else if (text.startsWith("everty-lan://")) {
                 dialog.dismiss()
                 (activity as? MainActivity)?.handleScannedQr(text)
@@ -218,9 +219,10 @@ class ServersFragment : Fragment() {
                     dialog.dismiss()
                     refreshList()
                     (activity as? MainActivity)?.notifyNodesChanged()
-                    Toast.makeText(requireContext(), "Добавлено ${nodes.size} узлов", Toast.LENGTH_SHORT).show()
+                    val msg = if (nodes.size == 1) "Обнаружен одиночный узел — добавлен в список серверов" else "Добавлено ${nodes.size} узлов в список серверов"
+                    Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(requireContext(), "Не удалось прочитать конфигурацию", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(requireContext(), "Не удалось прочитать конфигурацию (ожидается ссылка или узел)", Toast.LENGTH_SHORT).show()
                 }
             }
         }
