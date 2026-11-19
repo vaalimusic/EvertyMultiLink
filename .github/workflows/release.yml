@@ -99,7 +99,7 @@ jobs:
       matrix:
         include:
           - platform: Apple Silicon
-            runner: macos-14
+            runner: macos-15
             arch: arm64
           - platform: Intel
             runner: macos-15-intel
