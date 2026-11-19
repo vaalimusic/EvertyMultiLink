@@ -327,6 +327,8 @@ impl Canvas<'_> {
             | Action::SetDiagnosticsPreset(_)
             | Action::OpenAntigravityServersCheck
             | Action::RunAntigravityServersCheck
+            | Action::PingServer(_)
+            | Action::CheckSingleAntigravityServer(_)
             | Action::SelectAntigravityServer(_)
             | Action::AntigravityCheckPage(_) => !self.busy,
             _ => !self.locked,
@@ -383,11 +385,25 @@ impl Canvas<'_> {
             self.disabled_hits.push((r, reason));
         }
     }
-    fn badge(&mut self, x: f64, y: f64, label: &str, active: bool) {
+    fn text_width(&mut self, value: &str, size: f64, bold: bool) -> f64 {
+        let style = TextStyle {
+            family: FontFamily::Named("Segoe UI".into()),
+            weight: if bold {
+                FontWeight::Semibold
+            } else {
+                FontWeight::Regular
+            },
+            font_size: LogicalPx(size),
+            line_height: LogicalPx(size * 1.4),
+            ..TextStyle::default()
+        };
+        self.text.shape(value, &style, None).metrics.size.width.0
+    }
+    fn badge_sized(&mut self, x: f64, y: f64, label: &str, active: bool, width: f64) {
         self.rect(
             x,
             y,
-            if active { 110.0 } else { 116.0 },
+            width,
             26.0,
             if active {
                 SOFT
@@ -397,16 +413,72 @@ impl Canvas<'_> {
             13.0,
         );
         self.text(
-            x + 11.0,
-            y + 4.0,
+            x + 8.0,
+            y + 4.5,
             label,
-            12.0,
+            11.5,
             if active { ACCENT } else { MUTED },
             false,
         );
     }
+    fn badge(&mut self, x: f64, y: f64, label: &str, active: bool) {
+        self.badge_sized(x, y, label, active, if active { 110.0 } else { 116.0 });
+    }
+    fn draw_availability_bars(&mut self, x: f64, y: f64, node: &multilink_core::Node, connected: bool) {
+        let bar_count = 6;
+        let bar_w = 3.5;
+        let bar_gap = 2.0;
+        let max_h = 13.0;
+        let base_y = y + max_h;
+
+        let samples: Vec<Option<u16>> = if !node.quality.history.is_empty() {
+            let skip = node.quality.history.len().saturating_sub(bar_count);
+            node.quality
+                .history
+                .iter()
+                .skip(skip)
+                .map(|&d| if d > 0 { Some(d) } else { None })
+                .collect()
+        } else if let Some(d) = node.delay.filter(|_| connected && node.enabled) {
+            vec![Some(d as u16); bar_count.min(3)]
+        } else {
+            Vec::new()
+        };
+
+        for i in 0..bar_count {
+            let bx = x + i as f64 * (bar_w + bar_gap);
+            let sample = if samples.len() < bar_count {
+                let pad = bar_count - samples.len();
+                if i < pad {
+                    None
+                } else {
+                    Some(samples[i - pad])
+                }
+            } else {
+                Some(samples[i])
+            };
+
+            let (bh, color) = match sample {
+                Some(Some(delay)) => {
+                    if delay < 120 {
+                        (13.0, ACCENT)
+                    } else if delay < 250 {
+                        (10.0, ACCENT)
+                    } else if delay < 450 {
+                        (7.0, WARNING)
+                    } else {
+                        (5.0, DANGER)
+                    }
+                }
+                Some(None) => (3.0, DANGER),
+                None => (2.5, Color::rgba(50, 60, 75, 255)),
+            };
+
+            self.rect(bx, base_y - bh, bar_w, bh, color, 1.0);
+        }
+    }
 }
-fn shortened(s: &str, n: usize) -> String {
+pub(crate) fn shortened(s: &str, n: usize) -> String {
     if s.chars().count() > n {
         format!("{}…", s.chars().take(n).collect::<String>())
     } else {
@@ -2492,13 +2564,43 @@ impl App {
             }
             if let Modal::ServerDiagnostics(node_idx) = modal {
                 let modal_w = 720.0;
-                let modal_h = 520.0;
+                let modal_h = 560.0;
                 let sx = (w - modal_w) / 2.0;
                 let sy = (h - modal_h) / 2.0;
                 c.card(sx, sy, modal_w, modal_h);
                 let node_name = self.settings.nodes.get(*node_idx).map(|n| n.name.as_str()).unwrap_or("Сервер");
-                c.text(sx + 24.0, sy + 20.0, &format!("Диагностика сервера: {}", shortened(node_name, 35)), 20.0, TEXT, true);
-                c.text(sx + 24.0, sy + 48.0, "Глубокая проверка TLS, задержек и доступности ключевых сервисов", 12.0, MUTED, false);
+                c.text(sx + 24.0, sy + 18.0, &format!("Диагностика сервера: {}", shortened(node_name, 35)), 19.0, TEXT, true);
+                c.text(sx + 24.0, sy + 44.0, "Глубокая проверка TLS, задержек и доступности ключевых сервисов", 12.0, MUTED, false);
+
+                if let Some(node) = self.settings.nodes.get(*node_idx) {
+                    let host = node.proxy.get("server").and_then(|v| v.as_str()).unwrap_or("—");
+                    let port = node.proxy.get("port").and_then(|v| v.as_u64()).map(|p| p.to_string()).unwrap_or_else(|| "—".into());
+                    let ping_str = node.delay.map(|d| format!("{d} ms")).unwrap_or_else(|| "—".into());
+                    let jitter_str = format!("{:.1} ms", node.quality.jitter_ms);
+                    let rel_str = format!("{:.0}%", node.quality.reliability * 100.0);
+                    let samples_str = format!("{}", node.quality.samples);
+
+                    c.rect(sx + 20.0, sy + 66.0, modal_w - 40.0, 48.0, BG, 8.0);
+                    c.b.stroke_rect(LogicalRect::from_xywh(sx + 20.0, sy + 66.0, modal_w - 40.0, 48.0), LINE, 1.0, 8.0);
+
+                    c.text(sx + 32.0, sy + 74.0, &format!("Узел: {host}:{port}"), 11.0, MUTED, false);
+                    c.text(sx + 32.0, sy + 90.0, &format!("Пинг: {ping_str} · Jitter: {jitter_str}"), 12.0, ACCENT, true);
+
+                    c.text(sx + 250.0, sy + 74.0, "Стабильность канала", 11.0, MUTED, false);
+                    c.text(sx + 250.0, sy + 90.0, &format!("{rel_str} ({samples_str} проверок)"), 12.0, TEXT, true);
+
+                    c.text(sx + 440.0, sy + 74.0, "История доступности", 11.0, MUTED, false);
+                    c.draw_availability_bars(sx + 440.0, sy + 88.0, node, true);
+
+                    c.button(
+                        sx + modal_w - 130.0,
+                        sy + 73.0,
+                        100.0,
+                        "⚡ Пинг",
+                        Action::PingServer(*node_idx),
+                        false,
+                    );
+                }
 
                 // Presets row
                 let current_preset = self.diagnostics_preset;
@@ -2508,16 +2610,16 @@ impl App {
                     (multilink_mihomo::server_diagnostics::EndpointPreset::GoogleApi, "Google API (6)", 130.0),
                     (multilink_mihomo::server_diagnostics::EndpointPreset::General, "Общий Web (2)", 125.0),
                 ];
-                let mut bx = sx + 24.0;
+                let mut bx = sx + 20.0;
                 for (preset, label, btn_w) in presets {
                     let is_active = current_preset == preset;
-                    c.button(bx, sy + 75.0, btn_w, label, Action::SetDiagnosticsPreset(preset), is_active);
+                    c.button(bx, sy + 122.0, btn_w, label, Action::SetDiagnosticsPreset(preset), is_active);
                     bx += btn_w + 10.0;
                 }
 
                 // Table Header
-                let ty = sy + 120.0;
-                c.card(sx + 20.0, ty, modal_w - 40.0, 310.0);
+                let ty = sy + 162.0;
+                c.card(sx + 20.0, ty, modal_w - 40.0, 330.0);
                 c.text(sx + 35.0, ty + 12.0, "СЕРВИС / ЭНДПОИНТ", 10.0, MUTED, true);
                 c.text(sx + 300.0, ty + 12.0, "МЕТОД", 10.0, MUTED, true);
                 c.text(sx + 370.0, ty + 12.0, "HTTP", 10.0, MUTED, true);
@@ -2526,10 +2628,10 @@ impl App {
                 c.line(sx + 25.0, ty + 30.0, modal_w - 50.0);
 
                 if self.diagnostics_checking {
-                    c.text(sx + 220.0, ty + 130.0, "Проверка узла (TCP / TLS Handshake)…", 14.0, ACCENT, true);
+                    c.text(sx + 220.0, ty + 140.0, "Проверка узла (TCP / TLS Handshake)…", 14.0, ACCENT, true);
                 } else if let Some(report) = &self.server_diagnostics {
                     for (idx, ep) in report.endpoints.iter().take(6).enumerate() {
-                        let ey = ty + 36.0 + idx as f64 * 44.0;
+                        let ey = ty + 36.0 + idx as f64 * 46.0;
                         c.text(sx + 35.0, ey + 4.0, ep.name.as_str(), 13.0, TEXT, true);
                         c.text(sx + 35.0, ey + 22.0, &shortened(&ep.url, 38), 10.0, MUTED, false);
                         c.text(sx + 300.0, ey + 12.0, ep.method.as_str(), 11.0, MUTED, true);
@@ -2545,11 +2647,11 @@ impl App {
                         c.text(sx + 530.0, ey + 12.0, badge_text, 12.0, badge_color, true);
                     }
                 } else {
-                    c.text(sx + 240.0, ty + 130.0, "Нажмите «Повторить» для запуска", 13.0, MUTED, false);
+                    c.text(sx + 240.0, ty + 140.0, "Нажмите «Повторить» для запуска", 13.0, MUTED, false);
                 }
 
                 // Bottom summary and buttons
-                let bottom_y = sy + modal_h - 55.0;
+                let bottom_y = sy + modal_h - 52.0;
                 if let Some(rep) = &self.server_diagnostics {
                     let exit_text = if let Some(ip) = &rep.exit_ip {
                         format!("Внешний IP: {ip} · {}", shortened(&rep.summary, 45))
@@ -2681,7 +2783,8 @@ impl App {
                 // Table Header
                 let th_y = act_y + 46.0;
                 c.text(sx + 30.0, th_y, "СЕРВЕР", 10.0, MUTED, true);
-                c.text(sx + 260.0, th_y, "СТАТУС GOOGLE API", 10.0, MUTED, true);
+                c.text(sx + 230.0, th_y, "СТАТУС GOOGLE API", 10.0, MUTED, true);
+                c.text(sx + modal_w - 235.0, th_y, "ТЕСТ", 10.0, MUTED, true);
                 c.text(sx + modal_w - 130.0, th_y, "МАРШРУТ", 10.0, MUTED, true);
                 c.line(sx + 20.0, th_y + 16.0, modal_w - 40.0);
 
@@ -2691,34 +2794,48 @@ impl App {
                     let ry = th_y + 24.0 + row_i as f64 * 46.0;
                     c.line(sx + 20.0, ry + 40.0, modal_w - 40.0);
 
-                    c.text(sx + 30.0, ry + 12.0, &shortened(&node.name, 26), 14.0, TEXT, true);
+                    // Row hit target for right-click single check
+                    let row_rect = LogicalRect::from_xywh(sx + 20.0, ry, modal_w - 245.0, 42.0);
+                    c.hits.push((row_rect, Action::SelectAntigravityServer(*node_idx)));
+
+                    c.text(sx + 30.0, ry + 12.0, &shortened(&node.name, 22), 14.0, TEXT, true);
 
                     let status = self.antigravity_servers_status.get(&node.name);
                     match status {
                         Some(Ok(multilink_mihomo::AntigravityCheck::Responded(code))) => {
-                            c.text(sx + 260.0, ry + 12.0, "✓ Доступен", 13.0, ACCENT, true);
-                            c.text(sx + 360.0, ry + 13.0, &format!("HTTP {code}"), 11.0, MUTED, false);
+                            c.text(sx + 230.0, ry + 12.0, "✓ Доступен", 13.0, ACCENT, true);
+                            c.text(sx + 320.0, ry + 13.0, &format!("HTTP {code}"), 11.0, MUTED, false);
                         }
                         Some(Ok(multilink_mihomo::AntigravityCheck::Blocked(code))) => {
-                            c.text(sx + 260.0, ry + 12.0, "✗ Заблокирован", 13.0, DANGER, true);
-                            c.text(sx + 380.0, ry + 13.0, &format!("HTTP {code}"), 11.0, MUTED, false);
+                            c.text(sx + 230.0, ry + 12.0, "✗ Заблокирован", 13.0, DANGER, true);
+                            c.text(sx + 340.0, ry + 13.0, &format!("HTTP {code}"), 11.0, MUTED, false);
                         }
                         Some(Ok(multilink_mihomo::AntigravityCheck::Inconclusive(code))) => {
-                            c.text(sx + 260.0, ry + 12.0, "✗ Не отвечает", 13.0, DANGER, true);
-                            c.text(sx + 370.0, ry + 13.0, &format!("HTTP {code}"), 11.0, MUTED, false);
+                            c.text(sx + 230.0, ry + 12.0, "✗ Не отвечает", 13.0, DANGER, true);
+                            c.text(sx + 330.0, ry + 13.0, &format!("HTTP {code}"), 11.0, MUTED, false);
                         }
                         Some(Err(e)) => {
-                            c.text(sx + 260.0, ry + 12.0, "✗ Ошибка", 13.0, DANGER, true);
-                            c.text(sx + 335.0, ry + 13.0, &shortened(e, 20), 10.0, MUTED, false);
+                            c.text(sx + 230.0, ry + 12.0, "✗ Ошибка", 13.0, DANGER, true);
+                            c.text(sx + 305.0, ry + 13.0, &shortened(e, 16), 10.0, MUTED, false);
                         }
                         None => {
                             if self.antigravity_checking_all {
-                                c.text(sx + 260.0, ry + 12.0, "⟳ В очереди…", 12.0, WARNING, false);
+                                c.text(sx + 230.0, ry + 12.0, "⟳ В очереди…", 12.0, WARNING, false);
                             } else {
-                                c.text(sx + 260.0, ry + 12.0, "— Не проверялся", 12.0, MUTED, false);
+                                c.text(sx + 230.0, ry + 12.0, "— Не проверялся", 12.0, MUTED, false);
                             }
                         }
                     }
+
+                    // Single test button
+                    c.button(
+                        sx + modal_w - 235.0,
+                        ry + 4.0,
+                        88.0,
+                        "↻ Тест",
+                        Action::CheckSingleAntigravityServer(*node_idx),
+                        false,
+                    );
 
                     let target_id = multilink_core::server_route_target(&node.name);
                     let is_selected = rule_targets.get(self.rule_target).map_or(false, |(id, _)| id == &target_id);
@@ -3402,8 +3519,8 @@ fn server_list(
     }
     let col_qr = x + w - 58.0;
     let col_diag = col_qr - 40.0;
-    let col_badge = col_diag - 110.0;
-    let col_delay = col_badge - 88.0;
+    let col_badge = col_diag - 105.0;
+    let col_delay = col_badge - 85.0;
 
     c.text(x + 22.0, y + 14.0, "СЕРВЕР", 10.0, MUTED, true);
     c.text(col_delay, y + 14.0, "ЗАДЕРЖКА", 10.0, MUTED, true);
@@ -3457,14 +3574,17 @@ fn server_list(
         );
         let name_clip_w = (col_delay - (x + 68.0) - 12.0).max(10.0);
         c.b.push_clip(LogicalRect::from_xywh(x + 68.0, ry, name_clip_w, 55.0));
+        let name_str = shortened(&node.name, 28);
         c.raw_text(
             x + 68.0,
             ry + 6.0,
-            &shortened(&node.name, 40),
+            &name_str,
             14.0,
             TEXT,
             true,
         );
+        let name_w = c.text_width(&name_str, 14.0, true).min(name_clip_w - 42.0);
+        c.draw_availability_bars(x + 68.0 + name_w + 10.0, ry + 6.0, node, connected);
         let is_ru = multilink_core::is_russian_node(node);
         let quality_text = if is_ru {
             "🇷🇺 Локальный RU-узел (прямой доступ / вне пула умного режима)".to_string()
@@ -3502,17 +3622,19 @@ fn server_list(
             if node.delay.is_some() { ACCENT } else { MUTED },
             true,
         );
-        c.badge(
+        let (badge_text, badge_active, badge_w) = if !node.enabled {
+            ("Исключён", false, 84.0)
+        } else if connected && node.delay.is_some() {
+            ("● Доступен", true, 96.0)
+        } else {
+            ("🕒 Ожидание", false, 96.0)
+        };
+        c.badge_sized(
             col_badge,
             ry + 14.0,
-            if !node.enabled {
-                "Исключён"
-            } else if connected && node.delay.is_some() {
-                "● Доступен"
-            } else {
-                "○ Ожидание"
-            },
-            node.enabled && connected && node.delay.is_some(),
+            badge_text,
+            badge_active,
+            badge_w,
         );
         c.icon_button(
             col_diag,

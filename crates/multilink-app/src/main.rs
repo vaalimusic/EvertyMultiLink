@@ -97,6 +97,7 @@ enum Update {
         Vec<(String, Option<u64>, multilink_core::NodeQuality)>,
     ),
     TunnelReachable(bool),
+    SingleServerPinged(usize, Option<u64>),
     UpdateCheckResult(Result<Option<(String, String)>, String>),
 }
 #[derive(Clone)]
@@ -518,8 +519,10 @@ enum Action {
     OpenAntigravityServersCheck,
     CloseAntigravityServersCheck,
     RunAntigravityServersCheck,
+    CheckSingleAntigravityServer(usize),
     SelectAntigravityServer(usize),
     AntigravityCheckPage(usize),
+    PingServer(usize),
 }
 #[derive(Clone, PartialEq, Debug)]
 enum Modal {
@@ -656,6 +659,8 @@ struct App {
     antigravity_servers_status: std::collections::HashMap<String, Result<multilink_mihomo::AntigravityCheck, String>>,
     antigravity_checking_all: bool,
     antigravity_check_page: usize,
+    antigravity_return_modal: Option<Modal>,
+    diagnostics_return_modal: Option<Modal>,
 }
 fn is_antigravity_key(key: &str) -> bool {
     matches!(
@@ -1004,6 +1009,8 @@ impl App {
             antigravity_servers_status: std::collections::HashMap::new(),
             antigravity_checking_all: false,
             antigravity_check_page: 0,
+            antigravity_return_modal: None,
+            diagnostics_return_modal: None,
         };
         #[cfg(not(test))]
         {
@@ -1420,6 +1427,19 @@ impl App {
                         } else {
                             "Нет ответа через VPN · проверьте маршрут или сервер"
                         });
+                    }
+                    self.redraw();
+                }
+                Update::SingleServerPinged(index, rtt) => {
+                    if let Some(node) = self.settings.nodes.get_mut(index) {
+                        node.delay = rtt;
+                        let stamp = format!("{:?}", Instant::now());
+                        node.quality.observe(&stamp, rtt);
+                    }
+                    if let Some(rtt) = rtt {
+                        self.notify(format!("Пинг узла: {rtt} ms"));
+                    } else {
+                        self.notify("Сервер не ответил на TCP-пинг (таймаут)");
                     }
                     self.redraw();
                 }
@@ -1909,6 +1929,12 @@ impl App {
                 self.edit.set_text(&self.note_value);
                 self.edit_scroll = 0.0;
             }
+            Action::Close if !self.busy && self.modal == Some(Modal::AntigravityServersCheck) => {
+                self.action(Action::CloseAntigravityServersCheck);
+            }
+            Action::Close if !self.busy && matches!(self.modal, Some(Modal::ServerDiagnostics(_))) => {
+                self.action(Action::CloseServerDiagnostics);
+            }
             Action::Close if !self.busy => {
                 if let Some(session) = self.lan_sync_session.take() {
                     session.stop();
@@ -2014,20 +2040,29 @@ impl App {
             }
             Action::OpenAntigravityServersCheck => {
                 self.antigravity_check_page = 0;
+                self.antigravity_return_modal = self.modal.clone();
                 self.modal = Some(Modal::AntigravityServersCheck);
                 if self.antigravity_servers_status.is_empty() && !self.antigravity_checking_all {
                     self.action(Action::RunAntigravityServersCheck);
                 }
             }
             Action::CloseAntigravityServersCheck => {
-                if self.antigravity_template {
-                    self.modal = Some(Modal::Rule);
-                } else {
-                    self.modal = None;
-                }
+                self.modal = self.antigravity_return_modal.take();
             }
             Action::AntigravityCheckPage(page) => {
                 self.antigravity_check_page = page;
+            }
+            Action::CheckSingleAntigravityServer(node_idx) => {
+                if let Some(node) = self.settings.nodes.get(node_idx).cloned() {
+                    let updates = self.updates.clone();
+                    let name = node.name.clone();
+                    self.antigravity_servers_status.remove(&name);
+                    self.notify(format!("Проверка Google API: {}…", ui::shortened(&name, 25)));
+                    std::thread::spawn(move || {
+                        let res = multilink_mihomo::check_antigravity(&node);
+                        let _ = updates.send(Update::AntigravityChecked(name, res));
+                    });
+                }
             }
             Action::RunAntigravityServersCheck => {
                 if !self.antigravity_checking_all {
@@ -2060,11 +2095,7 @@ impl App {
                     if let Some(pos) = self.rule_targets().iter().position(|(id, _)| id == &target_id) {
                         self.rule_target = pos;
                     }
-                    if self.antigravity_template {
-                        self.modal = Some(Modal::Rule);
-                    } else {
-                        self.modal = None;
-                    }
+                    self.modal = self.antigravity_return_modal.take();
                 }
             }
             Action::ToggleAntigravityAutoSelect => {
@@ -2142,13 +2173,41 @@ impl App {
                     });
                 }
             }
+            Action::PingServer(index) => {
+                if let Some(node) = self.settings.nodes.get(index).cloned() {
+                    let updates = self.updates.clone();
+                    let name = node.name.clone();
+                    self.notify(format!("Пинг узла: {}…", ui::shortened(&name, 25)));
+                    std::thread::spawn(move || {
+                        let host = node.proxy.get("server").and_then(|v| v.as_str()).unwrap_or("");
+                        let port = node.proxy.get("port").and_then(|v| v.as_u64()).unwrap_or(443) as u16;
+                        let target = format!("{host}:{port}");
+                        let start = Instant::now();
+                        let rtt = if let Ok(mut addrs) = std::net::ToSocketAddrs::to_socket_addrs(&target.as_str()) {
+                            if let Some(addr) = addrs.next() {
+                                if std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(2500)).is_ok() {
+                                    Some(start.elapsed().as_millis() as u64)
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+                        let _ = updates.send(Update::SingleServerPinged(index, rtt));
+                    });
+                }
+            }
             Action::OpenServerDiagnostics(index) => {
+                self.diagnostics_return_modal = self.modal.clone();
                 self.modal = Some(Modal::ServerDiagnostics(index));
                 self.server_diagnostics = None;
                 self.action(Action::RunServerDiagnostics(index));
             }
             Action::CloseServerDiagnostics => {
-                self.modal = None;
+                self.modal = self.diagnostics_return_modal.take();
                 self.server_diagnostics = None;
             }
             Action::SetDiagnosticsPreset(preset) => {
@@ -3462,10 +3521,29 @@ impl ApplicationHandler for App {
             }
             WindowEvent::MouseInput {
                 state,
-                button: WMouse::Left,
+                button,
                 ..
             } => {
                 self.redraw();
+                if button == WMouse::Right {
+                    if state == ElementState::Released {
+                        if let Some(action) = self.action_at_pointer() {
+                            match action {
+                                Action::Toggle(i) => {
+                                    self.action(Action::OpenServerDiagnostics(i));
+                                }
+                                Action::SelectAntigravityServer(i) => {
+                                    self.action(Action::CheckSingleAntigravityServer(i));
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    return;
+                }
+                if button != WMouse::Left {
+                    return;
+                }
                 match state {
                     ElementState::Pressed => {
                         if let Some(bar) = self

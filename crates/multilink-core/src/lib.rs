@@ -20,6 +20,8 @@ pub struct NodeQuality {
     pub jitter_ms: f64,
     pub reliability: f64,
     pub last_sample: String,
+    #[serde(default)]
+    pub history: Vec<u16>,
 }
 impl NodeQuality {
     pub fn observe(&mut self, stamp: &str, delay: Option<u64>) {
@@ -34,13 +36,19 @@ impl NodeQuality {
             self.reliability = self.reliability * 0.75 + success * 0.25;
         }
         if let Some(delay) = delay {
-            let delay = delay as f64;
+            let delay_f = delay as f64;
             if self.latency_ms <= 0.0 {
-                self.latency_ms = delay;
+                self.latency_ms = delay_f;
             } else {
-                self.jitter_ms = self.jitter_ms * 0.75 + (delay - self.latency_ms).abs() * 0.25;
-                self.latency_ms = self.latency_ms * 0.75 + delay * 0.25;
+                self.jitter_ms = self.jitter_ms * 0.75 + (delay_f - self.latency_ms).abs() * 0.25;
+                self.latency_ms = self.latency_ms * 0.75 + delay_f * 0.25;
             }
+            self.history.push(delay.min(9999) as u16);
+        } else {
+            self.history.push(0);
+        }
+        if self.history.len() > 10 {
+            self.history.remove(0);
         }
         self.samples = self.samples.saturating_add(1);
     }
