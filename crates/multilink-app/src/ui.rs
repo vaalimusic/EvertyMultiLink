@@ -8,6 +8,8 @@ const TEXT: Color = Color::rgba(235, 241, 247, 255);
 const MUTED: Color = Color::rgba(131, 145, 162, 255);
 const ACCENT: Color = Color::rgba(111, 230, 180, 255);
 const SOFT: Color = Color::rgba(28, 52, 45, 255);
+const DANGER: Color = Color::rgba(240, 80, 80, 255);
+const WARNING: Color = Color::rgba(240, 180, 0, 255);
 
 #[derive(Default)]
 pub(super) struct TextCache(std::collections::HashMap<(String, u64, bool), Arc<TextLayout>>);
@@ -289,7 +291,10 @@ impl Canvas<'_> {
             | Action::RemovePin
             | Action::LockPin
             | Action::CheckUpdate
-            | Action::OpenUpdateLink => true,
+            | Action::OpenUpdateLink
+            | Action::ShowAntigravityPatches(_)
+            | Action::CloseServerDiagnostics
+            | Action::CloseAntigravityServersCheck => true,
             Action::Connect
             | Action::Close
             | Action::Paste
@@ -298,12 +303,11 @@ impl Canvas<'_> {
             Action::SelectRuleTarget(_) | Action::TargetPage(_) => !self.busy,
             Action::RefreshSubscription(_) => !self.busy,
             Action::ExportSettings | Action::ImportSettings => !self.busy,
-            Action::Toggle(_) | Action::EnableAllServers => !self.busy,
+            Action::Toggle(_) | Action::EnableAllServers | Action::DisableAllServers => !self.busy,
             Action::AddRule
             | Action::AddRuDomains
             | Action::AddProcessRule
             | Action::AddAntigravity
-            | Action::CheckAntigravity
             | Action::RuleField(_)
             | Action::DeleteRule(_)
             | Action::EditRule(_)
@@ -312,7 +316,19 @@ impl Canvas<'_> {
             | Action::ExportRoutes
             | Action::ReplaceRoutes
             | Action::Policy
-            | Action::RuleTarget => !self.busy,
+            | Action::RuleTarget
+            | Action::ScanAntigravityPatches
+            | Action::TogglePatchComponent(_)
+            | Action::ApplyAntigravityPatches
+            | Action::RestoreAntigravityPatches
+            | Action::ToggleAntigravityAutoSelect
+            | Action::OpenServerDiagnostics(_)
+            | Action::RunServerDiagnostics(_)
+            | Action::SetDiagnosticsPreset(_)
+            | Action::OpenAntigravityServersCheck
+            | Action::RunAntigravityServersCheck
+            | Action::SelectAntigravityServer(_)
+            | Action::AntigravityCheckPage(_) => !self.busy,
             _ => !self.locked,
         };
         let hovered = enabled && self.hover == Some(action);
@@ -1471,7 +1487,8 @@ impl App {
                 );
             }
             Page::Routing => {
-                c.card(x, 131.0, width, 110.0);
+                let card_w = width - 26.0;
+                c.card(x, 131.0, card_w, 110.0);
                 c.text(x + 22.0, 150.0, "ПОЛИТИКА МАРШРУТИЗАЦИИ", 10.0, MUTED, true);
                 c.text(
                     x + 22.0,
@@ -1490,61 +1507,212 @@ impl App {
                     false,
                 );
                 c.icon_button(
-                    w - 94.0,
+                    w - 100.0,
                     166.0,
                     14,
                     Action::Policy,
                     "Сменить алгоритм выбора сервера",
                 );
                 c.icon_button(
-                    w - 190.0,
+                    w - 192.0,
                     166.0,
                     7,
                     Action::ImportRoutes,
                     "Импортировать правила из файла",
                 );
                 c.icon_button(
-                    w - 142.0,
+                    w - 146.0,
                     166.0,
                     6,
                     Action::ExportRoutes,
                     "Экспортировать правила в файл",
                 );
-                c.text(x, 267.0, "Правила", 19.0, TEXT, true);
-                c.text(
+                c.button(
                     x,
-                    298.0,
-                    "Домены, IP и группы сайтов. Применяются сразу.",
-                    13.0,
-                    MUTED,
-                    false,
-                );
-                c.button(w - 170.0, 264.0, 136.0, "+ Правило", Action::AddRule, true);
-                c.button(
-                    w - 290.0,
                     264.0,
-                    108.0,
-                    "RU сайты",
-                    Action::AddRuDomains,
-                    false,
-                );
-                c.icon_button(
-                    w - 340.0,
-                    264.0,
-                    12,
-                    Action::AddProcessRule,
-                    "Добавить правило для приложения",
+                    115.0,
+                    "Правила",
+                    Action::ShowAntigravityPatches(false),
+                    !self.show_antigravity_patches,
                 );
                 c.button(
-                    w - 496.0,
+                    x + 123.0,
                     264.0,
-                    144.0,
-                    "Antigravity",
-                    Action::AddAntigravity,
-                    false,
+                    105.0,
+                    "Патчи",
+                    Action::ShowAntigravityPatches(true),
+                    self.show_antigravity_patches,
                 );
-                c.card(x, 341.0, width, h - 435.0);
-                if self.settings.rules.is_empty() {
+                if !self.show_antigravity_patches {
+                    c.button(w - 195.0, 264.0, 135.0, "+ Правило", Action::AddRule, true);
+                    c.button(
+                        w - 310.0,
+                        264.0,
+                        105.0,
+                        "RU сайты",
+                        Action::AddRuDomains,
+                        false,
+                    );
+                    c.icon_button(
+                        w - 356.0,
+                        264.0,
+                        12,
+                        Action::AddProcessRule,
+                        "Добавить правило для приложения",
+                    );
+                    c.button(
+                        w - 495.0,
+                        264.0,
+                        130.0,
+                        "Antigravity",
+                        Action::AddAntigravity,
+                        false,
+                    );
+                }
+                c.card(x, 341.0, card_w, h - 435.0);
+                if self.show_antigravity_patches {
+                    c.text(x + 24.0, 362.0, "Antigravity — управление патчами", 18.0, TEXT, true);
+                    c.text(
+                        x + 24.0,
+                        388.0,
+                        "Обнаружение установленных компонентов и снятие региональных ограничений",
+                        12.0,
+                        MUTED,
+                        false,
+                    );
+                    c.button(
+                        w - 200.0,
+                        360.0,
+                        140.0,
+                        if self.antigravity_patch_busy { "Проверка…" } else { "Проверить ↻" },
+                        Action::ScanAntigravityPatches,
+                        false,
+                    );
+                    let has_backup = self.antigravity_patches.as_ref().map_or(false, |r| r.has_backup);
+                    if has_backup {
+                        c.button(
+                            w - 395.0,
+                            360.0,
+                            185.0,
+                            "Восстановить оригинал",
+                            Action::RestoreAntigravityPatches,
+                            false,
+                        );
+                    }
+
+                    // Restart Tip Box
+                    let notice_y = 415.0;
+                    c.rect(x + 20.0, notice_y, card_w - 40.0, 52.0, BG, 8.0);
+                    c.b.stroke_rect(
+                        LogicalRect::from_xywh(x + 20.0, notice_y, card_w - 40.0, 52.0),
+                        WARNING.with_opacity(0.35),
+                        1.0,
+                        8.0,
+                    );
+                    c.text(x + 32.0, notice_y + 8.0, "💡 Подсказка: Перезапуск Antigravity при смене состояния VPN", 12.0, WARNING, true);
+                    c.text(
+                        x + 32.0,
+                        notice_y + 24.0,
+                        "После включения или отключения VPN приложение Antigravity необходимо перезапустить.",
+                        11.0,
+                        TEXT,
+                        false,
+                    );
+                    c.text(
+                        x + 32.0,
+                        notice_y + 37.0,
+                        "Если в чате «Error Agent execution terminated due to error» — запрос пошёл мимо VPN. Перезапустите Antigravity!",
+                        10.0,
+                        MUTED,
+                        false,
+                    );
+
+                    let comp_rows = [
+                        (
+                            multilink_core::antigravity_patch::ComponentKind::Desktop,
+                            "Antigravity Desktop",
+                            "language_server.exe",
+                        ),
+                        (
+                            multilink_core::antigravity_patch::ComponentKind::Ide,
+                            "Antigravity IDE",
+                            "agy.exe / main.js / extension.js / language_server_windows_x64.exe",
+                        ),
+                        (
+                            multilink_core::antigravity_patch::ComponentKind::Cli,
+                            "Antigravity CLI",
+                            "agy.exe (консольный агент)",
+                        ),
+                    ];
+
+                    let mut cy = 480.0;
+                    for (comp_type, comp_name, comp_files) in comp_rows {
+                        let comp_info = self
+                            .antigravity_patches
+                            .as_ref()
+                            .and_then(|r| r.components.iter().find(|c| c.kind == comp_type));
+                        let state = comp_info.map(|c| c.state).unwrap_or(multilink_core::antigravity_patch::PatchState::Unknown);
+
+                        let (state_label, state_color, can_patch) = match state {
+                            multilink_core::antigravity_patch::PatchState::Patched => {
+                                ("✓ Патч обнаружен", ACCENT, false)
+                            }
+                            multilink_core::antigravity_patch::PatchState::NotPatched => {
+                                ("⚠ Патч отсутствует", WARNING, true)
+                            }
+                            multilink_core::antigravity_patch::PatchState::Partial
+                            | multilink_core::antigravity_patch::PatchState::Error => {
+                                ("! Частичная модификация", DANGER, true)
+                            }
+                            multilink_core::antigravity_patch::PatchState::Unknown
+                            | multilink_core::antigravity_patch::PatchState::NotInstalled => {
+                                ("○ Не установлен", MUTED, false)
+                            }
+                        };
+
+                        c.text(x + 28.0, cy + 5.0, "●", 14.0, state_color, false);
+                        c.text(x + 48.0, cy + 4.0, comp_name, 15.0, TEXT, true);
+                        c.text(x + 48.0, cy + 24.0, comp_files, 11.0, MUTED, false);
+                        c.text(w - 370.0, cy + 14.0, state_label, 13.0, state_color, true);
+
+                        if can_patch {
+                            let is_checked = self.antigravity_selected_patches.contains(&comp_type);
+                            c.button(
+                                w - 200.0,
+                                cy + 5.0,
+                                140.0,
+                                if is_checked { "☑ Выбрано" } else { "☐ Применить" },
+                                Action::TogglePatchComponent(comp_type),
+                                is_checked,
+                            );
+                        }
+                        cy += 55.0;
+                        c.line(x + 24.0, cy, card_w - 48.0);
+                        cy += 10.0;
+                    }
+
+                    let selected_count = self.antigravity_selected_patches.len();
+                    c.text(x + 28.0, cy + 18.0, &format!("Выбрано компонентов: {selected_count}"), 13.0, TEXT, true);
+                    if let Some(status) = &self.antigravity_patch_status {
+                        c.text(x + 220.0, cy + 18.0, status, 12.0, ACCENT, false);
+                    }
+                    c.button(
+                        w - 245.0,
+                        cy + 8.0,
+                        185.0,
+                        "Применить выбранное",
+                        Action::ApplyAntigravityPatches,
+                        selected_count > 0 && !self.antigravity_patch_busy,
+                    );
+                    c.text(
+                        x + 28.0,
+                        cy + 45.0,
+                        "Безопасность: Резервная копия создаётся автоматически. Системные переменные https_proxy не изменяются.",
+                        11.0,
+                        MUTED,
+                        false,
+                    );
+                } else if self.settings.rules.is_empty() {
                     c.text(x + 26.0, 370.0, "Пока без исключений", 20.0, TEXT, true);
                     c.text(
                         x + 26.0,
@@ -1587,7 +1755,7 @@ impl App {
                         c.b.push_clip(LogicalRect::from_xywh(
                             x + 20.0,
                             y,
-                            (width - 330.0).max(1.0),
+                            (card_w - 330.0).max(1.0),
                             54.0,
                         ));
                         c.text(
@@ -1636,8 +1804,8 @@ impl App {
                             ACCENT,
                             true,
                         );
-                        c.icon_button(w - 140.0, y, 1, Action::EditRule(i), "Изменить правило");
-                        c.icon_button(w - 92.0, y, 2, Action::DeleteRule(i), "Удалить правило");
+                        c.icon_button(w - 150.0, y, 1, Action::EditRule(i), "Изменить правило");
+                        c.icon_button(w - 104.0, y, 2, Action::DeleteRule(i), "Удалить правило");
                     }
                 }
             }
@@ -2322,6 +2490,286 @@ impl App {
                 self.hits = c.hits;
                 return c.b.finish();
             }
+            if let Modal::ServerDiagnostics(node_idx) = modal {
+                let modal_w = 720.0;
+                let modal_h = 520.0;
+                let sx = (w - modal_w) / 2.0;
+                let sy = (h - modal_h) / 2.0;
+                c.card(sx, sy, modal_w, modal_h);
+                let node_name = self.settings.nodes.get(*node_idx).map(|n| n.name.as_str()).unwrap_or("Сервер");
+                c.text(sx + 24.0, sy + 20.0, &format!("Диагностика сервера: {}", shortened(node_name, 35)), 20.0, TEXT, true);
+                c.text(sx + 24.0, sy + 48.0, "Глубокая проверка TLS, задержек и доступности ключевых сервисов", 12.0, MUTED, false);
+
+                // Presets row
+                let current_preset = self.diagnostics_preset;
+                let presets = [
+                    (multilink_mihomo::server_diagnostics::EndpointPreset::All, "Все (8)", 85.0),
+                    (multilink_mihomo::server_diagnostics::EndpointPreset::Antigravity, "Antigravity (5)", 130.0),
+                    (multilink_mihomo::server_diagnostics::EndpointPreset::GoogleApi, "Google API (6)", 130.0),
+                    (multilink_mihomo::server_diagnostics::EndpointPreset::General, "Общий Web (2)", 125.0),
+                ];
+                let mut bx = sx + 24.0;
+                for (preset, label, btn_w) in presets {
+                    let is_active = current_preset == preset;
+                    c.button(bx, sy + 75.0, btn_w, label, Action::SetDiagnosticsPreset(preset), is_active);
+                    bx += btn_w + 10.0;
+                }
+
+                // Table Header
+                let ty = sy + 120.0;
+                c.card(sx + 20.0, ty, modal_w - 40.0, 310.0);
+                c.text(sx + 35.0, ty + 12.0, "СЕРВИС / ЭНДПОИНТ", 10.0, MUTED, true);
+                c.text(sx + 300.0, ty + 12.0, "МЕТОД", 10.0, MUTED, true);
+                c.text(sx + 370.0, ty + 12.0, "HTTP", 10.0, MUTED, true);
+                c.text(sx + 440.0, ty + 12.0, "RTT", 10.0, MUTED, true);
+                c.text(sx + 530.0, ty + 12.0, "СТАТУС", 10.0, MUTED, true);
+                c.line(sx + 25.0, ty + 30.0, modal_w - 50.0);
+
+                if self.diagnostics_checking {
+                    c.text(sx + 220.0, ty + 130.0, "Проверка узла (TCP / TLS Handshake)…", 14.0, ACCENT, true);
+                } else if let Some(report) = &self.server_diagnostics {
+                    for (idx, ep) in report.endpoints.iter().take(6).enumerate() {
+                        let ey = ty + 36.0 + idx as f64 * 44.0;
+                        c.text(sx + 35.0, ey + 4.0, ep.name.as_str(), 13.0, TEXT, true);
+                        c.text(sx + 35.0, ey + 22.0, &shortened(&ep.url, 38), 10.0, MUTED, false);
+                        c.text(sx + 300.0, ey + 12.0, ep.method.as_str(), 11.0, MUTED, true);
+                        let code_str = ep.status_code.map(|c| c.to_string()).unwrap_or_else(|| "—".into());
+                        c.text(sx + 370.0, ey + 12.0, &code_str, 12.0, TEXT, true);
+                        c.text(sx + 440.0, ey + 12.0, &format!("{} ms", ep.latency_ms), 12.0, ACCENT, false);
+
+                        let (badge_text, badge_color) = match ep.status {
+                            multilink_mihomo::server_diagnostics::EndpointStatus::Ok => ("● Доступен", ACCENT),
+                            multilink_mihomo::server_diagnostics::EndpointStatus::Limited => ("▲ Ограничен", WARNING),
+                            multilink_mihomo::server_diagnostics::EndpointStatus::Failed => ("✕ Ошибка", DANGER),
+                        };
+                        c.text(sx + 530.0, ey + 12.0, badge_text, 12.0, badge_color, true);
+                    }
+                } else {
+                    c.text(sx + 240.0, ty + 130.0, "Нажмите «Повторить» для запуска", 13.0, MUTED, false);
+                }
+
+                // Bottom summary and buttons
+                let bottom_y = sy + modal_h - 55.0;
+                if let Some(rep) = &self.server_diagnostics {
+                    let exit_text = if let Some(ip) = &rep.exit_ip {
+                        format!("Внешний IP: {ip} · {}", shortened(&rep.summary, 45))
+                    } else {
+                        shortened(&rep.summary, 60).to_string()
+                    };
+                    c.text(sx + 24.0, bottom_y + 12.0, &exit_text, 11.0, MUTED, false);
+                }
+                c.button(sx + modal_w - 290.0, bottom_y, 140.0, "Повторить ↻", Action::RunServerDiagnostics(*node_idx), false);
+                c.button(sx + modal_w - 140.0, bottom_y, 116.0, "Закрыть", Action::CloseServerDiagnostics, true);
+
+                self.input_rect = None;
+                self.hits = c.hits;
+                return c.b.finish();
+            }
+            if *modal == Modal::AntigravityServersCheck {
+                let modal_w = 680.0;
+                let modal_h = 530.0;
+                let sx = (w - modal_w) / 2.0;
+                let sy = (h - modal_h) / 2.0;
+
+                c.rect(sx, sy, modal_w, modal_h, PANEL, 12.0);
+                c.b.stroke_rect(LogicalRect::from_xywh(sx, sy, modal_w, modal_h), LINE, 1.0, 12.0);
+
+                c.text(sx + 24.0, sy + 20.0, "Проверка серверов для Antigravity", 21.0, TEXT, true);
+                c.text(
+                    sx + 24.0,
+                    sy + 46.0,
+                    "Доступность Google API (HTTP 400/404) и региональный статус узлов",
+                    12.0,
+                    MUTED,
+                    false,
+                );
+
+                // Restart Tip Box
+                let tip_y = sy + 72.0;
+                c.rect(sx + 20.0, tip_y, modal_w - 40.0, 56.0, BG, 8.0);
+                c.b.stroke_rect(
+                    LogicalRect::from_xywh(sx + 20.0, tip_y, modal_w - 40.0, 56.0),
+                    WARNING.with_opacity(0.35),
+                    1.0,
+                    8.0,
+                );
+                c.text(sx + 32.0, tip_y + 8.0, "💡 Важно: Перезапуск Antigravity при смене состояния VPN", 12.0, WARNING, true);
+                c.text(
+                    sx + 32.0,
+                    tip_y + 24.0,
+                    "После включения и отключения VPN приложение Antigravity нужно перезапустить.",
+                    11.0,
+                    TEXT,
+                    false,
+                );
+                c.text(
+                    sx + 32.0,
+                    tip_y + 38.0,
+                    "Ошибка «Agent execution terminated due to error (Error ID: ...)» = запрос пошёл мимо VPN.",
+                    10.0,
+                    MUTED,
+                    false,
+                );
+
+                // Action Bar
+                let act_y = tip_y + 68.0;
+                c.button(
+                    sx + 20.0,
+                    act_y,
+                    165.0,
+                    if self.antigravity_checking_all { "Тестирование… ⟳" } else { "Запустить тест ↻" },
+                    Action::RunAntigravityServersCheck,
+                    self.antigravity_checking_all,
+                );
+                c.button(
+                    sx + 195.0,
+                    act_y,
+                    225.0,
+                    if self.antigravity_auto_select {
+                        "☑ Автовыбор (HTTP 400)"
+                    } else {
+                        "☐ Автовыбор сервера"
+                    },
+                    Action::ToggleAntigravityAutoSelect,
+                    self.antigravity_auto_select,
+                );
+
+                let mut effective = self.settings.clone();
+                multilink_core::exclude_expired_access(&mut effective);
+                let eligible: Vec<(usize, &multilink_core::Node)> = effective
+                    .nodes
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, n)| n.enabled)
+                    .collect();
+
+                let page_size = 5;
+                let total_pages = (eligible.len() + page_size - 1) / page_size;
+                let current_page = self.antigravity_check_page.min(total_pages.saturating_sub(1));
+
+                if total_pages > 1 {
+                    c.text(
+                        sx + modal_w - 200.0,
+                        act_y + 12.0,
+                        &format!("Стр. {} / {}", current_page + 1, total_pages),
+                        12.0,
+                        MUTED,
+                        false,
+                    );
+                    if current_page > 0 {
+                        c.button(
+                            sx + modal_w - 110.0,
+                            act_y,
+                            38.0,
+                            "←",
+                            Action::AntigravityCheckPage(current_page - 1),
+                            false,
+                        );
+                    }
+                    if current_page + 1 < total_pages {
+                        c.button(
+                            sx + modal_w - 62.0,
+                            act_y,
+                            38.0,
+                            "→",
+                            Action::AntigravityCheckPage(current_page + 1),
+                            false,
+                        );
+                    }
+                }
+
+                // Table Header
+                let th_y = act_y + 46.0;
+                c.text(sx + 30.0, th_y, "СЕРВЕР", 10.0, MUTED, true);
+                c.text(sx + 260.0, th_y, "СТАТУС GOOGLE API", 10.0, MUTED, true);
+                c.text(sx + modal_w - 130.0, th_y, "МАРШРУТ", 10.0, MUTED, true);
+                c.line(sx + 20.0, th_y + 16.0, modal_w - 40.0);
+
+                // Rows
+                let start_idx = current_page * page_size;
+                for (row_i, (node_idx, node)) in eligible.iter().skip(start_idx).take(page_size).enumerate() {
+                    let ry = th_y + 24.0 + row_i as f64 * 46.0;
+                    c.line(sx + 20.0, ry + 40.0, modal_w - 40.0);
+
+                    c.text(sx + 30.0, ry + 12.0, &shortened(&node.name, 26), 14.0, TEXT, true);
+
+                    let status = self.antigravity_servers_status.get(&node.name);
+                    match status {
+                        Some(Ok(multilink_mihomo::AntigravityCheck::Responded(code))) => {
+                            c.text(sx + 260.0, ry + 12.0, "✓ Доступен", 13.0, ACCENT, true);
+                            c.text(sx + 360.0, ry + 13.0, &format!("HTTP {code}"), 11.0, MUTED, false);
+                        }
+                        Some(Ok(multilink_mihomo::AntigravityCheck::Blocked(code))) => {
+                            c.text(sx + 260.0, ry + 12.0, "✗ Заблокирован", 13.0, DANGER, true);
+                            c.text(sx + 380.0, ry + 13.0, &format!("HTTP {code}"), 11.0, MUTED, false);
+                        }
+                        Some(Ok(multilink_mihomo::AntigravityCheck::Inconclusive(code))) => {
+                            c.text(sx + 260.0, ry + 12.0, "✗ Не отвечает", 13.0, DANGER, true);
+                            c.text(sx + 370.0, ry + 13.0, &format!("HTTP {code}"), 11.0, MUTED, false);
+                        }
+                        Some(Err(e)) => {
+                            c.text(sx + 260.0, ry + 12.0, "✗ Ошибка", 13.0, DANGER, true);
+                            c.text(sx + 335.0, ry + 13.0, &shortened(e, 20), 10.0, MUTED, false);
+                        }
+                        None => {
+                            if self.antigravity_checking_all {
+                                c.text(sx + 260.0, ry + 12.0, "⟳ В очереди…", 12.0, WARNING, false);
+                            } else {
+                                c.text(sx + 260.0, ry + 12.0, "— Не проверялся", 12.0, MUTED, false);
+                            }
+                        }
+                    }
+
+                    let target_id = multilink_core::server_route_target(&node.name);
+                    let is_selected = rule_targets.get(self.rule_target).map_or(false, |(id, _)| id == &target_id);
+
+                    if is_selected {
+                        c.button(
+                            sx + modal_w - 140.0,
+                            ry + 4.0,
+                            116.0,
+                            "✓ Выбран",
+                            Action::SelectAntigravityServer(*node_idx),
+                            true,
+                        );
+                    } else {
+                        c.button(
+                            sx + modal_w - 140.0,
+                            ry + 4.0,
+                            116.0,
+                            "Выбрать",
+                            Action::SelectAntigravityServer(*node_idx),
+                            false,
+                        );
+                    }
+                }
+
+                if eligible.is_empty() {
+                    c.text(
+                        sx + 30.0,
+                        th_y + 40.0,
+                        "В библиотеке нет включённых серверов",
+                        14.0,
+                        MUTED,
+                        false,
+                    );
+                }
+
+                // Bottom Buttons
+                let bottom_y = sy + modal_h - 48.0;
+                c.button(
+                    sx + modal_w - 140.0,
+                    bottom_y,
+                    116.0,
+                    "Закрыть",
+                    Action::CloseAntigravityServersCheck,
+                    false,
+                );
+
+                self.input_rect = None;
+                self.hits = c.hits;
+                return c.b.finish();
+            }
             if *modal == Modal::Language {
                 c.text(mx + 28.0, my + 24.0, "Язык интерфейса", 23.0, TEXT, true);
                 c.text(
@@ -2669,15 +3117,21 @@ impl App {
                 );
             }
             if !import {
-                let label = rule_targets
+                let (target_id, target_name) = rule_targets
                     .get(self.rule_target)
-                    .map(|(_, name)| name.as_str())
-                    .unwrap_or("Напрямую");
+                    .map(|(id, name)| (id.as_str(), name.as_str()))
+                    .unwrap_or(("", "Напрямую"));
+                let is_failed = self.antigravity_failed_nodes.contains(target_id);
+                let display_label = if is_failed {
+                    format!("⚠ {}", shortened(target_name, 15))
+                } else {
+                    shortened(target_name, 18).to_string()
+                };
                 c.button(
                     mx + 410.0,
                     my + 177.0,
                     222.0,
-                    &format!("Маршрут: {} →", shortened(label, 18)),
+                    &format!("Маршрут: {display_label} →"),
                     Action::RuleTarget,
                     false,
                 );
@@ -2714,25 +3168,26 @@ impl App {
                     false,
                 );
                 if antigravity {
-                    if self.antigravity_checking {
-                        c.text(
-                            mx + 424.0,
-                            my + 226.0,
-                            "Проверка региона…",
-                            13.0,
-                            MUTED,
-                            false,
-                        );
-                    } else {
-                        c.button(
-                            mx + 410.0,
-                            my + 216.0,
-                            222.0,
-                            "Проверить регион",
-                            Action::CheckAntigravity,
-                            false,
-                        );
-                    }
+                    c.button(
+                        mx + 180.0,
+                        my + 216.0,
+                        220.0,
+                        if self.antigravity_auto_select {
+                            "☑ Автовыбор (HTTP 400)"
+                        } else {
+                            "☐ Автовыбор сервера"
+                        },
+                        Action::ToggleAntigravityAutoSelect,
+                        self.antigravity_auto_select,
+                    );
+                    c.button(
+                        mx + 410.0,
+                        my + 216.0,
+                        222.0,
+                        "Проверить регион ☰",
+                        Action::OpenAntigravityServersCheck,
+                        false,
+                    );
                 }
             }
             if let Some((_, message)) = self.antigravity_result.as_ref().filter(|(id, _)| {
@@ -2741,12 +3196,16 @@ impl App {
                         .get(self.rule_target)
                         .is_some_and(|(target, _)| id == target)
             }) {
+                let is_fail = message.contains("заблокирован")
+                    || message.contains("не дала ответа")
+                    || message.contains("Ошибка")
+                    || message.contains("оборвался");
                 c.text(
                     mx + 28.0,
                     my + 258.0,
                     &shortened(i18n::tr(language, message).as_ref(), 90),
                     12.0,
-                    ACCENT,
+                    if is_fail { DANGER } else { ACCENT },
                     false,
                 );
             }
@@ -2942,12 +3401,14 @@ fn server_list(
         return;
     }
     let col_qr = x + w - 58.0;
-    let col_badge = x + w - 180.0;
-    let col_delay = x + w - 268.0;
+    let col_diag = col_qr - 40.0;
+    let col_badge = col_diag - 110.0;
+    let col_delay = col_badge - 88.0;
 
     c.text(x + 22.0, y + 14.0, "СЕРВЕР", 10.0, MUTED, true);
     c.text(col_delay, y + 14.0, "ЗАДЕРЖКА", 10.0, MUTED, true);
     c.text(col_badge, y + 14.0, "СОСТОЯНИЕ", 10.0, MUTED, true);
+    c.text(col_diag + 6.0, y + 14.0, "ТЕСТ", 10.0, MUTED, true);
     c.text(col_qr + 9.0, y + 14.0, "QR", 10.0, MUTED, true);
     c.line(x + 18.0, y + 42.0, w - 36.0);
     let mut order: Vec<_> = settings.nodes.iter().enumerate().collect();
@@ -3052,6 +3513,13 @@ fn server_list(
                 "○ Ожидание"
             },
             node.enabled && connected && node.delay.is_some(),
+        );
+        c.icon_button(
+            col_diag,
+            ry + 8.5,
+            12,
+            Action::OpenServerDiagnostics(i),
+            "Расширенная диагностика сервера",
         );
         c.icon_button(
             col_qr,

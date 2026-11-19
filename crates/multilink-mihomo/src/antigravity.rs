@@ -9,7 +9,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AntigravityCheck {
     Blocked(u16),
     Responded(u16),
@@ -65,6 +65,13 @@ fn check(node: &Node, endpoint: &str) -> Result<AntigravityCheck, String> {
         .local_addr()
         .map_err(|_| "Нет порта для проверки")?
         .port();
+    let reserved_ctl = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .map_err(|_| "Нет свободного порта для проверки")?;
+    let ctl_port = reserved_ctl
+        .local_addr()
+        .map_err(|_| "Нет порта для проверки")?
+        .port();
+    drop(reserved_ctl);
     let dir = multilink_platform::data_dir().join("runtime");
     std::fs::create_dir_all(&dir).map_err(|_| "Нет доступа к папке ядра")?;
     let id = uuid::Uuid::new_v4().simple().to_string();
@@ -77,7 +84,7 @@ fn check(node: &Node, endpoint: &str) -> Result<AntigravityCheck, String> {
     let mut proxy = serde_json::to_value(&node.proxy).map_err(|_| "Ошибка конфигурации узла")?;
     proxy["name"] = json!("ANTIGRAVITY-EXIT");
     let config = json!({
-        "mixed-port": port, "bind-address": "127.0.0.1", "allow-lan": false,
+        "mixed-port": port, "external-controller": format!("127.0.0.1:{ctl_port}"), "bind-address": "127.0.0.1", "allow-lan": false,
         "mode": "rule", "log-level": "silent", "ipv6": false,
         "authentication": [format!("probe:{id}")],
         "proxies": [proxy], "rules": ["MATCH,ANTIGRAVITY-EXIT"],
@@ -192,7 +199,10 @@ mod tests {
             let until = Instant::now() + Duration::from_secs(24);
             let mut stream = loop {
                 match server.accept() {
-                    Ok((stream, _)) => break stream,
+                    Ok((stream, _)) => {
+                        let _ = stream.set_nonblocking(false);
+                        break stream;
+                    }
                     Err(e)
                         if e.kind() == std::io::ErrorKind::WouldBlock && Instant::now() < until =>
                     {

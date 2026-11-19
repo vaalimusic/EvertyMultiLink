@@ -11,6 +11,7 @@ mod access;
 pub use access::*;
 mod extra_import;
 pub use extra_import::{is_lan_node, LAN_CIPHER, LAN_PORT};
+pub mod antigravity_patch;
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct NodeQuality {
@@ -968,9 +969,9 @@ pub fn normalize_direct_rules(rules: &[String]) -> Result<Vec<String>, String> {
                         .any(|c| c.is_control() || matches!(c, '/' | '\\' | ',' | '*')))
                 || (!mac_name
                     && (!process.to_ascii_lowercase().ends_with(".exe")
-                        || !process
-                            .bytes()
-                            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))))
+                        || process
+                            .chars()
+                            .any(|c| c.is_control() || matches!(c, '/' | '\\' | ',' | '*' | '<' | '>' | ':' | '"' | '|' | '?'))))
             {
                 return Err(if mac_name {
                     "Укажите имя процесса, например Safari, или полный путь к приложению"
@@ -1530,6 +1531,24 @@ mod tests {
             "/Applications/Other.app/Contents/MacOS/Other"
         ));
         assert_eq!(normalize_direct_rules(&[rule.clone()]).unwrap(), vec![rule]);
+    }
+    #[test]
+    fn windows_process_rules_support_names_with_spaces_and_symbols() {
+        let rules = rules_from_input(
+            "Telegram Desktop.exe; Dead by Daylight.exe; My Game (x64).exe",
+            true,
+            "MULTILINK",
+        )
+        .unwrap();
+        assert!(rules.contains(&"PROCESS-NAME,telegram desktop.exe,MULTILINK".into()));
+        assert!(rules.contains(&"PROCESS-NAME,dead by daylight.exe,MULTILINK".into()));
+        assert!(rules.contains(&"PROCESS-NAME,my game (x64).exe,MULTILINK".into()));
+
+        assert!(process_rule_matches(
+            "PROCESS-NAME,telegram desktop.exe,MULTILINK",
+            "Telegram Desktop.exe",
+            "C:\\Program Files\\Telegram Desktop\\Telegram Desktop.exe"
+        ));
     }
     #[test]
     fn fm_compatibility_import_preserves_connection_parameters() {

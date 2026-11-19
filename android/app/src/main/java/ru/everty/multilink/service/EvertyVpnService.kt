@@ -364,6 +364,13 @@ class EvertyVpnService : VpnService() {
         return builder.build()
     }
 
+    override fun onRevoke() {
+        Log.w(TAG, "VPN session revoked by system")
+        disconnect()
+        stopSelf()
+        super.onRevoke()
+    }
+
     override fun onDestroy() {
         disconnect()
         super.onDestroy()

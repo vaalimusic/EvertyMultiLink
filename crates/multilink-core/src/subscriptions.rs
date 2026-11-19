@@ -223,6 +223,10 @@ pub fn initialize_ru_routes(settings: &mut Settings) {
         "RULE-SET,RU-SITES,DIRECT",
         "DOMAIN-SUFFIX,ru,DIRECT",
         "DOMAIN-SUFFIX,xn--p1ai,DIRECT",
+        "DOMAIN-SUFFIX,su,DIRECT",
+        "DOMAIN-SUFFIX,ya.ru,DIRECT",
+        "DOMAIN-SUFFIX,yandex.ru,DIRECT",
+        "DOMAIN-SUFFIX,gosuslugi.ru,DIRECT",
     ] {
         if !settings.rules.iter().any(|r| rule_key(r) == rule_key(rule)) {
             settings.rules.push(rule.into());
@@ -361,7 +365,7 @@ mod tests {
         let mut settings = Settings::default();
         settings.rules = vec!["DOMAIN-SUFFIX,ru,MULTILINK".into()];
         initialize_ru_routes(&mut settings);
-        assert_eq!(settings.rules.len(), 3);
+        assert_eq!(settings.rules.len(), 7);
         assert_eq!(settings.rules[0], "DOMAIN-SUFFIX,ru,MULTILINK");
         settings.rules.clear();
         initialize_ru_routes(&mut settings);

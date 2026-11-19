@@ -78,6 +78,11 @@ enum Update {
     Imported(ImportReport, Option<String>, Option<u64>),
     SubscriptionFetched(u64, u64, String, Result<ImportReport, String>),
     AntigravityChecked(String, Result<multilink_mihomo::AntigravityCheck, String>),
+    AntigravityCheckAllDone,
+    AntigravityPatchesScanned(multilink_core::antigravity_patch::AntigravityPatchReport),
+    AntigravityPatchesApplied(Result<Vec<multilink_core::antigravity_patch::PatchOperationResult>, String>),
+    AntigravityPatchesRestored(Result<(), String>),
+    DiagnosticsReportReady(multilink_mihomo::server_diagnostics::ServerDiagnosticReport),
     SaveError,
     Notice(String),
     OperationError(String),
@@ -467,7 +472,6 @@ enum Action {
     AddRule,
     AddProcessRule,
     AddAntigravity,
-    CheckAntigravity,
     RuleField(bool),
     AddRuDomains,
     ClearServers,
@@ -501,6 +505,21 @@ enum Action {
     LockPin,
     CheckUpdate,
     OpenUpdateLink,
+    ScanAntigravityPatches,
+    TogglePatchComponent(multilink_core::antigravity_patch::ComponentKind),
+    ApplyAntigravityPatches,
+    RestoreAntigravityPatches,
+    ToggleAntigravityAutoSelect,
+    ShowAntigravityPatches(bool),
+    OpenServerDiagnostics(usize),
+    CloseServerDiagnostics,
+    RunServerDiagnostics(usize),
+    SetDiagnosticsPreset(multilink_mihomo::server_diagnostics::EndpointPreset),
+    OpenAntigravityServersCheck,
+    CloseAntigravityServersCheck,
+    RunAntigravityServersCheck,
+    SelectAntigravityServer(usize),
+    AntigravityCheckPage(usize),
 }
 #[derive(Clone, PartialEq, Debug)]
 enum Modal {
@@ -527,6 +546,8 @@ enum Modal {
         url: String,
         pin: String,
     },
+    ServerDiagnostics(usize),
+    AntigravityServersCheck,
 }
 
 struct App {
@@ -622,6 +643,19 @@ struct App {
     update_available: Option<String>,
     update_url: Option<String>,
     checking_update: bool,
+    antigravity_patches: Option<multilink_core::antigravity_patch::AntigravityPatchReport>,
+    antigravity_selected_patches: std::collections::HashSet<multilink_core::antigravity_patch::ComponentKind>,
+    antigravity_patch_status: Option<String>,
+    antigravity_patch_busy: bool,
+    antigravity_auto_select: bool,
+    antigravity_failed_nodes: std::collections::HashSet<String>,
+    show_antigravity_patches: bool,
+    server_diagnostics: Option<multilink_mihomo::server_diagnostics::ServerDiagnosticReport>,
+    diagnostics_checking: bool,
+    diagnostics_preset: multilink_mihomo::server_diagnostics::EndpointPreset,
+    antigravity_servers_status: std::collections::HashMap<String, Result<multilink_mihomo::AntigravityCheck, String>>,
+    antigravity_checking_all: bool,
+    antigravity_check_page: usize,
 }
 fn is_antigravity_key(key: &str) -> bool {
     matches!(
@@ -957,7 +991,28 @@ impl App {
             update_available: None,
             update_url: None,
             checking_update: false,
+            antigravity_patches: None,
+            antigravity_selected_patches: std::collections::HashSet::new(),
+            antigravity_patch_status: None,
+            antigravity_patch_busy: false,
+            antigravity_auto_select: false,
+            antigravity_failed_nodes: std::collections::HashSet::new(),
+            show_antigravity_patches: false,
+            server_diagnostics: None,
+            diagnostics_checking: false,
+            diagnostics_preset: multilink_mihomo::server_diagnostics::EndpointPreset::All,
+            antigravity_servers_status: std::collections::HashMap::new(),
+            antigravity_checking_all: false,
+            antigravity_check_page: 0,
         };
+        #[cfg(not(test))]
+        {
+            let patch_updates = app.updates.clone();
+            std::thread::spawn(move || {
+                let report = multilink_core::antigravity_patch::detect_all_installations();
+                let _ = patch_updates.send(Update::AntigravityPatchesScanned(report));
+            });
+        }
         #[cfg(not(test))]
         {
             let check_updates = app.updates.clone();
@@ -1031,22 +1086,90 @@ impl App {
                 }
                 Update::AntigravityChecked(name, result) => {
                     self.antigravity_checking = false;
-                    let message = match result {
+                    self.antigravity_servers_status.insert(name.clone(), result.clone());
+                    let (message, is_fail) = match result {
                         Ok(multilink_mihomo::AntigravityCheck::Blocked(status)) => {
-                            format!("Регион заблокирован (HTTP {status}) · {name}")
+                            (format!("Регион заблокирован (HTTP {status}) · {name}"), true)
                         }
                         Ok(multilink_mihomo::AntigravityCheck::Responded(status)) => {
-                            format!("Блокировка региона не обнаружена (HTTP {status}) · {name}")
+                            (format!("Блокировка региона не обнаружена (HTTP {status}) · {name}"), false)
                         }
                         Ok(multilink_mihomo::AntigravityCheck::Inconclusive(status)) => {
-                            format!("Проверка региона не дала ответа (HTTP {status}) · {name}")
+                            (format!("Проверка региона не дала ответа (HTTP {status}) · {name}"), true)
                         }
-                        Err(error) => format!("{error} · {name}"),
+                        Err(error) => (format!("{error} · {name}"), true),
                     };
+                    let target_id = multilink_core::server_route_target(&name);
+                    if is_fail {
+                        self.antigravity_failed_nodes.insert(target_id.clone());
+                    } else {
+                        self.antigravity_failed_nodes.remove(&target_id);
+                        if self.antigravity_auto_select {
+                            if let Some(pos) = self.rule_targets().iter().position(|(id, _)| id == &target_id) {
+                                self.rule_target = pos;
+                            }
+                        }
+                    }
                     self.antigravity_result =
-                        Some((multilink_core::server_route_target(&name), message.clone()));
+                        Some((target_id, message.clone()));
                     self.logs.push_front(message);
                     self.logs.truncate(100);
+                }
+                Update::AntigravityCheckAllDone => {
+                    self.antigravity_checking_all = false;
+                }
+                Update::AntigravityPatchesScanned(report) => {
+                    self.antigravity_patch_busy = false;
+                    self.antigravity_selected_patches.clear();
+                    for comp in &report.components {
+                        if comp.state == multilink_core::antigravity_patch::PatchState::NotPatched {
+                            self.antigravity_selected_patches.insert(comp.kind);
+                        }
+                    }
+                    self.antigravity_patches = Some(report);
+                }
+                Update::AntigravityPatchesApplied(result) => {
+                    self.antigravity_patch_busy = false;
+                    match result {
+                        Ok(res) => {
+                            let (success, failed) = (
+                                res.iter().filter(|r| r.success).count(),
+                                res.iter().filter(|r| !r.success).count(),
+                            );
+                            let msg = format!("Применено: {success} успешно, {failed} ошибок");
+                            self.antigravity_patch_status = Some(msg.clone());
+                            self.notify(msg);
+                        }
+                        Err(err) => {
+                            self.antigravity_patch_status = Some(format!("Ошибка: {err}"));
+                            self.notify(format!("Ошибка применения патча: {err}"));
+                        }
+                    }
+                    self.action(Action::ScanAntigravityPatches);
+                }
+                Update::AntigravityPatchesRestored(result) => {
+                    self.antigravity_patch_busy = false;
+                    match result {
+                        Ok(()) => {
+                            self.antigravity_patch_status = Some("Оригинальные файлы восстановлены из бэкапа".into());
+                            self.notify("Оригинальные файлы успешно восстановлены");
+                        }
+                        Err(err) => {
+                            self.antigravity_patch_status = Some(format!("Ошибка восстановления: {err}"));
+                            self.notify(format!("Ошибка восстановления: {err}"));
+                        }
+                    }
+                    self.action(Action::ScanAntigravityPatches);
+                }
+                Update::DiagnosticsReportReady(rep) => {
+                    self.diagnostics_checking = false;
+                    let target = multilink_core::server_route_target(&rep.node_name);
+                    if !rep.antigravity_supported {
+                        self.antigravity_failed_nodes.insert(target);
+                    } else {
+                        self.antigravity_failed_nodes.remove(&target);
+                    }
+                    self.server_diagnostics = Some(rep);
                 }
                 Update::AccessSynced(token, doc) => {
                     match multilink_core::install_access(&mut self.settings, token, doc) {
@@ -1889,26 +2012,169 @@ impl App {
                     self.reset_caret();
                 }
             }
-            Action::CheckAntigravity if !self.busy && !self.antigravity_checking => {
-                let target = self
-                    .rule_targets()
-                    .get(self.rule_target)
-                    .map(|(id, _)| id.clone());
-                let mut effective = self.settings.clone();
-                multilink_core::exclude_expired_access(&mut effective);
-                let node = effective.nodes.into_iter().find(|n| {
-                    n.enabled
-                        && target.as_deref() == Some(&multilink_core::server_route_target(&n.name))
-                });
-                if let Some(node) = node {
-                    let updates = self.updates.clone();
-                    self.antigravity_checking = true;
-                    std::thread::spawn(move || {
-                        let result = multilink_mihomo::check_antigravity(&node);
-                        let _ = updates.send(Update::AntigravityChecked(node.name, result));
-                    });
+            Action::OpenAntigravityServersCheck => {
+                self.antigravity_check_page = 0;
+                self.modal = Some(Modal::AntigravityServersCheck);
+                if self.antigravity_servers_status.is_empty() && !self.antigravity_checking_all {
+                    self.action(Action::RunAntigravityServersCheck);
+                }
+            }
+            Action::CloseAntigravityServersCheck => {
+                if self.antigravity_template {
+                    self.modal = Some(Modal::Rule);
                 } else {
-                    self.notify("Для проверки выберите конкретный включённый сервер");
+                    self.modal = None;
+                }
+            }
+            Action::AntigravityCheckPage(page) => {
+                self.antigravity_check_page = page;
+            }
+            Action::RunAntigravityServersCheck => {
+                if !self.antigravity_checking_all {
+                    self.antigravity_checking_all = true;
+                    let mut effective = self.settings.clone();
+                    multilink_core::exclude_expired_access(&mut effective);
+                    let nodes: Vec<_> = effective
+                        .nodes
+                        .into_iter()
+                        .filter(|n| n.enabled && !multilink_core::is_russian_node(&n))
+                        .collect();
+                    if nodes.is_empty() {
+                        self.antigravity_checking_all = false;
+                        self.notify("Нет включённых серверов для проверки Antigravity");
+                    } else {
+                        let updates = self.updates.clone();
+                        std::thread::spawn(move || {
+                            for node in nodes {
+                                let res = multilink_mihomo::check_antigravity(&node);
+                                let _ = updates.send(Update::AntigravityChecked(node.name, res));
+                            }
+                            let _ = updates.send(Update::AntigravityCheckAllDone);
+                        });
+                    }
+                }
+            }
+            Action::SelectAntigravityServer(node_idx) => {
+                if let Some(node) = self.settings.nodes.get(node_idx) {
+                    let target_id = multilink_core::server_route_target(&node.name);
+                    if let Some(pos) = self.rule_targets().iter().position(|(id, _)| id == &target_id) {
+                        self.rule_target = pos;
+                    }
+                    if self.antigravity_template {
+                        self.modal = Some(Modal::Rule);
+                    } else {
+                        self.modal = None;
+                    }
+                }
+            }
+            Action::ToggleAntigravityAutoSelect => {
+                self.antigravity_auto_select = !self.antigravity_auto_select;
+                if self.antigravity_auto_select && !self.antigravity_checking {
+                    let mut effective = self.settings.clone();
+                    multilink_core::exclude_expired_access(&mut effective);
+                    let enabled_nodes: Vec<_> = effective
+                        .nodes
+                        .into_iter()
+                        .filter(|n| n.enabled && !multilink_core::is_russian_node(&n))
+                        .collect();
+                    if !enabled_nodes.is_empty() {
+                        self.antigravity_checking = true;
+                        let updates = self.updates.clone();
+                        std::thread::spawn(move || {
+                            for node in enabled_nodes {
+                                if let Ok(res) = multilink_mihomo::check_antigravity(&node) {
+                                    if matches!(res, multilink_mihomo::AntigravityCheck::Responded(_)) {
+                                        let _ = updates.send(Update::AntigravityChecked(node.name, Ok(res)));
+                                        return;
+                                    }
+                                }
+                            }
+                            let _ = updates.send(Update::Notice("Не найден сервер с доступным Google API".into()));
+                        });
+                    }
+                }
+            }
+            Action::ShowAntigravityPatches(show) => {
+                self.show_antigravity_patches = show;
+                if show && self.antigravity_patches.is_none() && !self.antigravity_patch_busy {
+                    self.action(Action::ScanAntigravityPatches);
+                }
+            }
+            Action::ScanAntigravityPatches => {
+                if !self.antigravity_patch_busy {
+                    self.antigravity_patch_busy = true;
+                    let updates = self.updates.clone();
+                    std::thread::spawn(move || {
+                        let report = multilink_core::antigravity_patch::detect_all_installations();
+                        let _ = updates.send(Update::AntigravityPatchesScanned(report));
+                    });
+                }
+            }
+            Action::TogglePatchComponent(comp_type) => {
+                if self.antigravity_selected_patches.contains(&comp_type) {
+                    self.antigravity_selected_patches.remove(&comp_type);
+                } else {
+                    self.antigravity_selected_patches.insert(comp_type);
+                }
+            }
+            Action::ApplyAntigravityPatches => {
+                if !self.antigravity_patch_busy {
+                    let selected: Vec<_> = self.antigravity_selected_patches.iter().copied().collect();
+                    if selected.is_empty() {
+                        self.notify("Выберите хотя бы один компонент для применения патча");
+                    } else {
+                        self.antigravity_patch_busy = true;
+                        let updates = self.updates.clone();
+                        std::thread::spawn(move || {
+                            let result = multilink_core::antigravity_patch::apply_selected_patches(&selected);
+                            let _ = updates.send(Update::AntigravityPatchesApplied(result));
+                        });
+                    }
+                }
+            }
+            Action::RestoreAntigravityPatches => {
+                if !self.antigravity_patch_busy {
+                    self.antigravity_patch_busy = true;
+                    let updates = self.updates.clone();
+                    std::thread::spawn(move || {
+                        let result = multilink_core::antigravity_patch::restore_all_backups();
+                        let _ = updates.send(Update::AntigravityPatchesRestored(result));
+                    });
+                }
+            }
+            Action::OpenServerDiagnostics(index) => {
+                self.modal = Some(Modal::ServerDiagnostics(index));
+                self.server_diagnostics = None;
+                self.action(Action::RunServerDiagnostics(index));
+            }
+            Action::CloseServerDiagnostics => {
+                self.modal = None;
+                self.server_diagnostics = None;
+            }
+            Action::SetDiagnosticsPreset(preset) => {
+                self.diagnostics_preset = preset;
+                if let Some(Modal::ServerDiagnostics(index)) = self.modal {
+                    self.action(Action::RunServerDiagnostics(index));
+                }
+            }
+            Action::RunServerDiagnostics(index) => {
+                if !self.diagnostics_checking {
+                    if let Some(node) = self.settings.nodes.get(index).cloned() {
+                        self.diagnostics_checking = true;
+                        let preset = self.diagnostics_preset;
+                        let updates = self.updates.clone();
+                        std::thread::spawn(move || {
+                            let report = multilink_mihomo::server_diagnostics::run_node_diagnostics(&node, preset);
+                            match report {
+                                Ok(rep) => {
+                                    let _ = updates.send(Update::DiagnosticsReportReady(rep));
+                                }
+                                Err(err) => {
+                                    let _ = updates.send(Update::Notice(format!("Ошибка диагностики: {err}")));
+                                }
+                            }
+                        });
+                    }
                 }
             }
             Action::Import | Action::AddRule | Action::AddRuDomains | Action::AddProcessRule => {
@@ -2195,7 +2461,11 @@ impl App {
                             ]);
                         }
                     }
-                    Some(Modal::ShareQr { .. }) | Some(Modal::LanSync { .. }) | None => {}
+                    Some(Modal::ShareQr { .. })
+                    | Some(Modal::LanSync { .. })
+                    | Some(Modal::ServerDiagnostics(_))
+                    | Some(Modal::AntigravityServersCheck)
+                    | None => {}
                 }
             }
             Action::Submit => {}

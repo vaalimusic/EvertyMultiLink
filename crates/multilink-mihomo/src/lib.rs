@@ -1,6 +1,8 @@
 use multilink_core::{Node, Policy, Settings};
 mod antigravity;
 pub use antigravity::*;
+pub mod server_diagnostics;
+pub use server_diagnostics::*;
 mod access;
 pub use access::*;
 mod lan_discovery;
@@ -124,13 +126,28 @@ pub fn config(settings: &Settings, secret: &str) -> Result<String, String> {
         Policy::Smart => {
             group["type"] = json!("url-test");
             group["tolerance"] = json!(settings.smart_tolerance.max(10));
-            group["interval"] = json!(30);
-            group["max-failed-times"] = json!(2);
-            group["timeout"] = json!(4000);
+            group["interval"] = json!(15);
+            group["max-failed-times"] = json!(1);
+            group["timeout"] = json!(2500);
+            group["expected-status"] = json!("204/200");
             group.as_object_mut().unwrap().remove("strategy");
         }
     }
     let mut rules = multilink_core::normalize_direct_rules(&settings.rules)?;
+    for pr in [
+        "IP-CIDR,127.0.0.0/8,DIRECT,no-resolve",
+        "IP-CIDR,10.0.0.0/8,DIRECT,no-resolve",
+        "IP-CIDR,172.16.0.0/12,DIRECT,no-resolve",
+        "IP-CIDR,192.168.0.0/16,DIRECT,no-resolve",
+        "IP-CIDR,169.254.0.0/16,DIRECT,no-resolve",
+        "IP-CIDR6,::1/128,DIRECT,no-resolve",
+        "IP-CIDR6,fc00::/7,DIRECT,no-resolve",
+        "IP-CIDR6,fe80::/10,DIRECT,no-resolve",
+    ] {
+        if !rules.iter().any(|r| multilink_core::rule_key(r) == multilink_core::rule_key(pr)) {
+            rules.push(pr.to_string());
+        }
+    }
     let match_target = if settings.rules_only {
         "DIRECT"
     } else {
@@ -151,11 +168,12 @@ pub fn config(settings: &Settings, secret: &str) -> Result<String, String> {
             "type": "url-test",
             "proxies": default_proxy_names,
             "url": "https://www.gstatic.com/generate_204",
-            "interval": 30,
+            "interval": 15,
             "tolerance": settings.smart_tolerance.max(10),
-            "max-failed-times": 2,
-            "timeout": 4000,
-            "lazy": false
+            "max-failed-times": 1,
+            "timeout": 2500,
+            "lazy": false,
+            "expected-status": "204/200"
         }));
     }
     if rules
@@ -247,18 +265,31 @@ pub fn config(settings: &Settings, secret: &str) -> Result<String, String> {
                 while proxy_names.values().any(|n| *n == name) {
                     name.push('-');
                 }
-                groups.push(json!({"name":name,"type":"url-test","proxies":default_nodes.iter().map(|n| &proxy_names[&n.name]).collect::<Vec<_>>(),"url":format!("https://{domain}/"),"interval":60,"timeout":4000,"tolerance":settings.smart_tolerance.max(10),"max-failed-times":2,"expected-status":"200-399/401/404","lazy":true}));
+                groups.push(json!({
+                    "name": name,
+                    "type": "url-test",
+                    "proxies": default_nodes.iter().map(|n| &proxy_names[&n.name]).collect::<Vec<_>>(),
+                    "url": format!("https://{domain}/"),
+                    "interval": 30,
+                    "timeout": 2500,
+                    "tolerance": settings.smart_tolerance.max(10),
+                    "max-failed-times": 1,
+                    "expected-status": "200-499",
+                    "lazy": false
+                }));
                 *rule = format!("DOMAIN-SUFFIX,{domain},{name}");
                 count += 1;
             }
         }
     }
     let mut config = json!({
-        "mixed-port":PORT, "bind-address":"127.0.0.1", "allow-lan":false,
-        "mode":"rule", "log-level":"silent", "ipv6":false,
-        "external-controller":format!("127.0.0.1:{CONTROLLER}"), "secret":secret,
-        "proxies":proxies, "proxy-groups":groups, "rules":rules,
-        "profile":{"store-selected":false, "store-fake-ip":false},
+        "mixed-port": PORT, "bind-address": "127.0.0.1", "allow-lan": false,
+        "mode": "rule", "log-level": "silent", "ipv6": false,
+        "tcp-concurrent": true,
+        "unified-delay": true,
+        "external-controller": format!("127.0.0.1:{CONTROLLER}"), "secret": secret,
+        "proxies": proxies, "proxy-groups": groups, "rules": rules,
+        "profile": {"store-selected": false, "store-fake-ip": false},
     });
     if let Some(key) = &settings.lan_gateway {
         if nodes.iter().any(|node| multilink_core::is_lan_node(node)) {
@@ -309,15 +340,48 @@ pub fn config(settings: &Settings, secret: &str) -> Result<String, String> {
             "strict-route": false,
             "dns-mode": "disabled",
             "dns-hijack": ["any:53", "tcp://any:53"],
-            "route-exclude-address": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+            "route-exclude-address": [
+                "10.0.0.0/8",
+                "172.16.0.0/12",
+                "192.168.0.0/16",
+                "169.254.0.0/16",
+                "127.0.0.0/8"
+            ]
         });
         config["dns"] = json!({
             "enable": true,
             "ipv6": false,
             "enhanced-mode": "fake-ip",
-            "fake-ip-filter": ["*.lan", "*.local", "localhost"],
-            "default-nameserver": ["1.1.1.1", "8.8.8.8"],
-            "nameserver": ["https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query"]
+            "fake-ip-filter": [
+                "*.lan", "*.local", "localhost", "*.home.arpa", "*.in-addr.arpa",
+                "*.msftncsi.com", "msftconnecttest.com",
+                "tplinkwifi.net", "router.asus.com", "my.keenetic.net", "keenetic.io", "fritz.box",
+                "*.ru", "*.рф", "*.su", "ya.ru", "*.ya.ru", "*.yandex.ru", "*.yandex.net", "*.gosuslugi.ru"
+            ],
+            "default-nameserver": ["77.88.8.8", "8.8.8.8", "1.1.1.1"],
+            "proxy-server-nameserver": ["77.88.8.8", "8.8.8.8", "1.1.1.1"],
+            "nameserver": [
+                "https://dns.google/dns-query",
+                "https://cloudflare-dns.com/dns-query",
+                "8.8.8.8",
+                "1.1.1.1"
+            ],
+            "direct-nameserver": [
+                "77.88.8.8",
+                "77.88.8.1",
+                "system"
+            ],
+            "nameserver-policy": {
+                "geosite:category-ru": ["77.88.8.8", "77.88.8.1"],
+                "+.ru": ["77.88.8.8", "77.88.8.1"],
+                "+.рф": ["77.88.8.8", "77.88.8.1"],
+                "+.su": ["77.88.8.8", "77.88.8.1"],
+                "+.yandex.ru": ["77.88.8.8", "77.88.8.1"],
+                "+.ya.ru": ["77.88.8.8", "77.88.8.1"],
+                "+.yandex.net": ["77.88.8.8", "77.88.8.1"],
+                "+.gosuslugi.ru": ["77.88.8.8", "77.88.8.1"],
+                "+.lan,+.local,+.home.arpa": "system"
+            }
         });
         config["sniffer"] = json!({"enable": true, "sniff": {"HTTP": {"ports": [80, "8080-8880"], "override-destination": true}, "TLS": {"ports": [443, 8443]}, "QUIC": {"ports": [443, 8443]}}});
         #[cfg(target_os = "macos")]
@@ -1169,7 +1233,7 @@ mod tests {
         assert_eq!(c["external-controller"], "127.0.0.1:19090");
         assert_eq!(c["secret"], "secret-test");
         assert_eq!(c["rules"][0], "DOMAIN-SUFFIX,example.org,DIRECT");
-        assert_eq!(c["rules"][1], "MATCH,MULTILINK");
+        assert!(c["rules"].as_sequence().unwrap().iter().any(|r| r == "MATCH,MULTILINK"));
         assert_eq!(c["proxy-groups"][0]["strategy"], "round-robin");
         s.nodes[0].enabled = false;
         assert!(config(&s, "x").is_err());
@@ -1185,7 +1249,7 @@ mod tests {
         let c: serde_yaml::Value =
             serde_yaml::from_str(&config(&settings, "test").unwrap()).unwrap();
         assert_eq!(c["rules"][0], "IP-CIDR,127.0.0.1/32,DIRECT");
-        assert_eq!(c["rules"][1], "MATCH,MULTILINK");
+        assert!(c["rules"].as_sequence().unwrap().iter().any(|r| r == "MATCH,MULTILINK"));
     }
     #[test]
     fn unavailable_country_routes_use_vpn_pool_and_keep_saved_binding() {

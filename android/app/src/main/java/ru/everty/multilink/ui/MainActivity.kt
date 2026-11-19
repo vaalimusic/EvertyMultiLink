@@ -144,7 +144,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun toggleVpn() {
-        if (EvertyVpnService.currentState == EvertyVpnService.STATE_CONNECTED) {
+        if (EvertyVpnService.currentState == EvertyVpnService.STATE_CONNECTED ||
+            EvertyVpnService.currentState == EvertyVpnService.STATE_CONNECTING) {
             startVpnService(EvertyVpnService.ACTION_DISCONNECT)
         } else {
             val prepareIntent = VpnService.prepare(this)
