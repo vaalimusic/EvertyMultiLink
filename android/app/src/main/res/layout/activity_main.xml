@@ -13,15 +13,17 @@
         android:layout_height="0dp"
         android:layout_weight="1" />
 
-    <!-- Bottom Navigation Bar with Desktop Styling -->
+    <!-- Bottom Navigation Bar with Desktop & TV Styling -->
     <com.google.android.material.bottomnavigation.BottomNavigationView
         android:id="@+id/bottomNav"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@color/bg_side"
-        app:itemIconTint="@color/accent_mint"
-        app:itemTextColor="@color/text_primary"
+        app:itemIconTint="@color/nav_item_color_selector"
+        app:itemTextColor="@color/nav_item_color_selector"
         app:itemRippleColor="@color/accent_soft"
+        app:itemBackground="@drawable/nav_item_tv_focus"
+        android:focusable="true"
         app:menu="@menu/bottom_nav_menu" />
 
 </LinearLayout>

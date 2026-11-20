@@ -102,7 +102,7 @@ jobs:
             runner: macos-15
             arch: arm64
           - platform: Intel
-            runner: macos-15-intel
+            runner: macos-13
             arch: amd64
     steps:
       - uses: actions/checkout@v4

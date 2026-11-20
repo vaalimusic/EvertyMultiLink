@@ -1,11 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android"
-    android:shape="oval">
-    <solid android:color="#342B19" />
-    <stroke
-        android:width="5dp"
-        android:color="@color/accent_gold" />
-    <size
-        android:width="200dp"
-        android:height="200dp" />
-</shape>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_focused="true">
+        <shape android:shape="oval">
+            <solid android:color="#2B271A" />
+            <stroke
+                android:width="7dp"
+                android:color="@color/white" />
+            <size
+                android:width="200dp"
+                android:height="200dp" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="#232014" />
+            <stroke
+                android:width="4dp"
+                android:color="@color/accent_gold" />
+            <size
+                android:width="200dp"
+                android:height="200dp" />
+        </shape>
+    </item>
+</selector>

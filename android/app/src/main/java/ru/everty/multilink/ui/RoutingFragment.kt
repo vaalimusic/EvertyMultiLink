@@ -48,11 +48,30 @@ class RoutingFragment : Fragment() {
         setupPerAppVpn()
         setupProxyIsolation()
         setupAutoUpdateAndProjectLinks()
+
+        // TV focus scale animations for clear visibility
+        val cardFocusListener = View.OnFocusChangeListener { v, hasFocus ->
+            val scale = if (hasFocus) 1.02f else 1.0f
+            v.animate().scaleX(scale).scaleY(scale).setDuration(150).start()
+        }
+        binding.cardSplitRu.onFocusChangeListener = cardFocusListener
+        binding.cardPerApp.onFocusChangeListener = cardFocusListener
+        binding.cardProxyIsolation.onFocusChangeListener = cardFocusListener
+        binding.cardAutoUpdateSub.onFocusChangeListener = cardFocusListener
+        binding.cardBoostyDonate.onFocusChangeListener = cardFocusListener
+        binding.cardAppUpdate.onFocusChangeListener = cardFocusListener
+        binding.cardOpenSourceLink.onFocusChangeListener = cardFocusListener
+        binding.cardGithubLink.onFocusChangeListener = cardFocusListener
+        binding.cardTelegramLink.onFocusChangeListener = cardFocusListener
     }
 
     private fun setupProxyIsolation() {
         binding.switchProxyIsolation.isChecked = settings.isLocalProxyIsolated
         updateProxyIsolationStatus()
+
+        binding.cardProxyIsolation.setOnClickListener {
+            binding.switchProxyIsolation.toggle()
+        }
 
         binding.switchProxyIsolation.setOnCheckedChangeListener { _, isChecked ->
             settings.isLocalProxyIsolated = isChecked
@@ -96,6 +115,9 @@ class RoutingFragment : Fragment() {
 
     private fun setupAutoUpdateAndProjectLinks() {
         binding.switchAutoUpdateSub.isChecked = settings.isAutoUpdateOnStartEnabled
+        binding.cardAutoUpdateSub.setOnClickListener {
+            binding.switchAutoUpdateSub.toggle()
+        }
         binding.switchAutoUpdateSub.setOnCheckedChangeListener { _, isChecked ->
             settings.isAutoUpdateOnStartEnabled = isChecked
         }
@@ -197,6 +219,9 @@ class RoutingFragment : Fragment() {
 
     private fun setupSplitRu() {
         binding.switchSplitRu.isChecked = settings.isSplitRuEnabled
+        binding.cardSplitRu.setOnClickListener {
+            binding.switchSplitRu.toggle()
+        }
         binding.switchSplitRu.setOnCheckedChangeListener { _, isChecked ->
             settings.isSplitRuEnabled = isChecked
             Toast.makeText(
@@ -253,6 +278,10 @@ class RoutingFragment : Fragment() {
     private fun setupPerAppVpn() {
         binding.switchPerAppVpn.isChecked = settings.isPerAppVpnEnabled
         binding.layoutPerAppSettings.visibility = if (settings.isPerAppVpnEnabled) View.VISIBLE else View.GONE
+
+        binding.cardPerApp.setOnClickListener {
+            binding.switchPerAppVpn.toggle()
+        }
 
         binding.switchPerAppVpn.setOnCheckedChangeListener { _, isChecked ->
             settings.isPerAppVpnEnabled = isChecked

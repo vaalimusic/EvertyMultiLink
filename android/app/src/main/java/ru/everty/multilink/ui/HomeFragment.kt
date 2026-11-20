@@ -49,6 +49,12 @@ class HomeFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
         settings = AppSettings(requireContext())
 
+        val isTv = (activity as? MainActivity)?.isTv ?: false
+        if (isTv) {
+            binding.badgeDeviceMode.text = "📺 Android TV"
+            binding.btnHomeScanQr.visibility = View.GONE
+        }
+
         setupListeners()
         updateModeDisplay()
         updateVpnState(EvertyVpnService.currentState)
@@ -90,6 +96,25 @@ class HomeFragment : Fragment() {
         binding.frameConnectCircle.setOnClickListener {
             (activity as? MainActivity)?.toggleVpn()
         }
+
+        binding.frameConnectCircle.setOnFocusChangeListener { _, hasFocus ->
+            val scale = if (hasFocus) 1.08f else 1.0f
+            binding.frameConnectCircle.animate()
+                .scaleX(scale)
+                .scaleY(scale)
+                .setDuration(180)
+                .start()
+        }
+
+        val chipFocusListener = View.OnFocusChangeListener { v, hasFocus ->
+            val scale = if (hasFocus) 1.06f else 1.0f
+            v.animate().scaleX(scale).scaleY(scale).setDuration(140).start()
+        }
+        binding.btnModeSmart.onFocusChangeListener = chipFocusListener
+        binding.btnModeFastest.onFocusChangeListener = chipFocusListener
+        binding.btnModeBalance.onFocusChangeListener = chipFocusListener
+        binding.btnHomeLanSync.onFocusChangeListener = chipFocusListener
+        binding.btnHomeShareQr.onFocusChangeListener = chipFocusListener
 
         binding.btnHomeLanSync.setOnClickListener {
             (activity as? MainActivity)?.showLanMenu()

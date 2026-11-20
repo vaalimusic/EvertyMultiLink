@@ -17,6 +17,8 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
+import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.widget.ImageView
 import android.widget.TextView
@@ -47,6 +49,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var pagerAdapter: MainPagerAdapter
     private val mainHandler = Handler(Looper.getMainLooper())
     private var isTvDevice = false
+    val isTv: Boolean get() = isTvDevice
     private var lanServer: TvLanSyncServer? = null
 
     private val vpnPermissionLauncher = registerForActivityResult(
@@ -126,6 +129,20 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         })
+
+        // TV D-Pad navigation up into active fragment
+        binding.bottomNav.setOnKeyListener { _, keyCode, event ->
+            if (event.action == KeyEvent.ACTION_DOWN && keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                when (binding.viewPager.currentItem) {
+                    0 -> pagerAdapter.homeFragment.view?.findViewById<android.view.View>(R.id.frameConnectCircle)?.requestFocus()
+                    1 -> pagerAdapter.serversFragment.view?.findViewById<android.view.View>(R.id.btnAddSubscription)?.requestFocus()
+                    2 -> pagerAdapter.routingFragment.view?.findViewById<android.view.View>(R.id.cardSplitRu)?.requestFocus()
+                }
+                true
+            } else {
+                false
+            }
+        }
     }
 
     private fun checkSubscriptionOnStart() {
@@ -148,23 +165,46 @@ class MainActivity : AppCompatActivity() {
             EvertyVpnService.currentState == EvertyVpnService.STATE_CONNECTING) {
             startVpnService(EvertyVpnService.ACTION_DISCONNECT)
         } else {
-            val prepareIntent = VpnService.prepare(this)
-            if (prepareIntent != null) {
-                vpnPermissionLauncher.launch(prepareIntent)
-            } else {
-                startVpnService(EvertyVpnService.ACTION_CONNECT)
+            val selectedNode = settings.getSelectedNode()
+            if (selectedNode == null) {
+                Toast.makeText(this, "Добавьте или выберите сервер перед подключением", Toast.LENGTH_LONG).show()
+                binding.bottomNav.selectedItemId = R.id.nav_servers
+                return
+            }
+
+            try {
+                val prepareIntent = VpnService.prepare(this)
+                if (prepareIntent != null) {
+                    try {
+                        vpnPermissionLauncher.launch(prepareIntent)
+                    } catch (e: Throwable) {
+                        Log.e("MainActivity", "Failed to launch VPN permission dialog", e)
+                        Toast.makeText(this, "Не удалось открыть диалог VPN: ${e.message}", Toast.LENGTH_LONG).show()
+                        startVpnService(EvertyVpnService.ACTION_CONNECT)
+                    }
+                } else {
+                    startVpnService(EvertyVpnService.ACTION_CONNECT)
+                }
+            } catch (e: Throwable) {
+                Log.e("MainActivity", "VpnService.prepare failed", e)
+                Toast.makeText(this, "Ошибка подготовки VPN: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
     }
 
     private fun startVpnService(action: String) {
-        val intent = Intent(this, EvertyVpnService::class.java).apply {
-            this.action = action
-        }
-        if (action == EvertyVpnService.ACTION_CONNECT && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
+        try {
+            val intent = Intent(this, EvertyVpnService::class.java).apply {
+                this.action = action
+            }
+            if (action == EvertyVpnService.ACTION_CONNECT && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        } catch (e: Throwable) {
+            Log.e("MainActivity", "Failed to start VPN service", e)
+            Toast.makeText(this, "Не удалось запустить VPN службу: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 

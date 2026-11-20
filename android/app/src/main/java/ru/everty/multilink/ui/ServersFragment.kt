@@ -123,6 +123,13 @@ class ServersFragment : Fragment() {
         binding.btnAddSubscription.setOnClickListener {
             showAddSubscriptionDialog()
         }
+
+        val btnFocusListener = View.OnFocusChangeListener { v, hasFocus ->
+            val scale = if (hasFocus) 1.05f else 1.0f
+            v.animate().scaleX(scale).scaleY(scale).setDuration(140).start()
+        }
+        binding.btnUpdateAllSubs.onFocusChangeListener = btnFocusListener
+        binding.btnAddSubscription.onFocusChangeListener = btnFocusListener
     }
 
     fun refreshList() {

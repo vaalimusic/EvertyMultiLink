@@ -70,9 +70,15 @@ class EvertyVpnService : VpnService() {
         isDisconnecting.set(false)
         val settings = AppSettings(this)
         val selectedNode = settings.getSelectedNode()
+
+        // Always satisfy startForeground immediately to avoid ForegroundServiceDidNotStartInTimeException
+        val initialText = if (selectedNode != null && selectedNode.isEnabled) "Подключение к ${selectedNode.name}…" else "Инициализация…"
+        startForegroundCompat(1001, buildNotification(initialText, false))
+
         if (selectedNode == null || !selectedNode.isEnabled) {
             Log.w(TAG, "Cannot connect: no active node selected")
             broadcastState(STATE_DISCONNECTED)
+            stopForeground(true)
             stopSelf()
             return
         }
@@ -87,10 +93,10 @@ class EvertyVpnService : VpnService() {
             }
         }
         mihomoProcess = null
-        runCatching { Tun2Socks.stop() }
+        runCatching { Tun2Socks.safeStop() }
 
         broadcastState(STATE_CONNECTING)
-        startForeground(1001, buildNotification("Подключение к ${selectedNode.name}…", false))
+        startForegroundCompat(1001, buildNotification("Подключение к ${selectedNode.name}…", false))
 
         workerThread = Thread {
             try {
@@ -153,41 +159,42 @@ class EvertyVpnService : VpnService() {
                     .addAddress("198.19.255.1", 30)
                     .addDnsServer(MihomoConfigBuilder.VPN_DNS)
                     .setMtu(1400)
-                    .addAddress("2001:db8:1234::1", 64)
-                LanRoutes.addTo(builder)
+
+                // Safe IPv6 setup: some TV box kernels do not support IPv6 on TUN
+                runCatching {
+                    builder.addAddress("2001:db8:1234::1", 64)
+                }.onFailure { e ->
+                    Log.w(TAG, "IPv6 address skipped (unsupported by device kernel): ${e.message}")
+                }
+
+                // Safe route setup: fallback to 0.0.0.0/0 if custom route exclusion fails
+                runCatching {
+                    LanRoutes.addTo(builder)
+                }.onFailure { e ->
+                    Log.w(TAG, "LanRoutes.addTo failed, adding default route 0.0.0.0/0: ${e.message}")
+                    runCatching { builder.addRoute("0.0.0.0", 0) }
+                }
 
                 // Per-App Split Tunneling or default self-exclusion
                 if (settings.isPerAppVpnEnabled && settings.perAppVpnPackages.isNotEmpty()) {
                     if (settings.perAppVpnMode == "INCLUDE") {
                         for (pkg in settings.perAppVpnPackages) {
-                            try {
-                                builder.addAllowedApplication(pkg)
-                            } catch (e: Exception) {
-                                Log.w(TAG, "addAllowedApplication failed for $pkg: ${e.message}")
-                            }
+                            runCatching { builder.addAllowedApplication(pkg) }
                         }
                     } else {
                         for (pkg in settings.perAppVpnPackages) {
-                            try {
-                                builder.addDisallowedApplication(pkg)
-                            } catch (e: Exception) {
-                                Log.w(TAG, "addDisallowedApplication failed for $pkg: ${e.message}")
-                            }
+                            runCatching { builder.addDisallowedApplication(pkg) }
                         }
-                        try {
-                            builder.addDisallowedApplication(packageName)
-                        } catch (_: Exception) {}
+                        runCatching { builder.addDisallowedApplication(packageName) }
                     }
                 } else {
-                    // Prevent VPN loopback: Disallow this app so Mihomo's proxy traffic goes out directly
-                    try {
-                        builder.addDisallowedApplication(packageName)
-                    } catch (e: Exception) {
-                        Log.w(TAG, "addDisallowedApplication failed: ${e.message}")
-                    }
+                    runCatching { builder.addDisallowedApplication(packageName) }
                 }
 
-                vpnInterface = builder.establish()
+                vpnInterface = runCatching { builder.establish() }.getOrElse { err ->
+                    Log.e(TAG, "builder.establish() threw an exception: ${err.message}", err)
+                    null
+                }
 
                 if (vpnInterface != null) {
                     val pfd = vpnInterface!!
@@ -204,7 +211,7 @@ class EvertyVpnService : VpnService() {
                     } else {
                         "socks5://127.0.0.1:7890"
                     }
-                    Tun2Socks.start(fd, socksTarget, 1400)
+                    Tun2Socks.safeStart(fd, socksTarget, 1400)
 
                     // 6. Monitor network changes (Wi-Fi <-> Mobile Data) for smooth handover
                     try {
@@ -234,7 +241,7 @@ class EvertyVpnService : VpnService() {
                         lanDiscovery = runCatching { LanGateway.advertise(lanAddress) }.getOrNull()
                     }
                     broadcastState(STATE_CONNECTED)
-                    startForeground(1001, buildNotification("Защищено через ${selectedNode.name}", true))
+                    startForegroundCompat(1001, buildNotification("Защищено через ${selectedNode.name}", true))
                     Log.d(TAG, "VPN Connected and Tun2Socks running.")
 
                     // Keep running while monitoring Mihomo process health
@@ -246,6 +253,7 @@ class EvertyVpnService : VpnService() {
                                 Log.e(TAG, "Mihomo process terminated unexpectedly (exit=${runCatching { p.exitValue() }.getOrNull()})")
                                 if (isRunning.get()) {
                                     disconnect()
+                                    stopForeground(true)
                                     stopSelf()
                                 }
                                 break
@@ -257,13 +265,15 @@ class EvertyVpnService : VpnService() {
                 } else {
                     Log.e(TAG, "Failed to establish VPN interface (null)")
                     broadcastState(STATE_DISCONNECTED)
+                    stopForeground(true)
                     stopSelf()
                 }
             } catch (e: InterruptedException) {
                 // Service intentionally stopped
-            } catch (e: Exception) {
-                Log.e(TAG, "Error starting VPN: ${e.message}", e)
+            } catch (t: Throwable) {
+                Log.e(TAG, "Error starting VPN: ${t.message}", t)
                 broadcastState(STATE_DISCONNECTED)
+                stopForeground(true)
                 stopSelf()
             }
         }.apply { start() }
@@ -326,6 +336,24 @@ class EvertyVpnService : VpnService() {
         val nm = getSystemService(android.app.NotificationManager::class.java)
         runCatching { nm?.cancel(1001) }
         Log.d(TAG, "VPN Disconnected cleanly.")
+    }
+
+    private fun startForegroundCompat(id: Int, notification: Notification) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                androidx.core.app.ServiceCompat.startForeground(
+                    this,
+                    id,
+                    notification,
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                )
+            } else {
+                startForeground(id, notification)
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "startForegroundCompat failed: ${e.message}", e)
+            runCatching { startForeground(id, notification) }
+        }
     }
 
     private fun broadcastState(state: Int) {

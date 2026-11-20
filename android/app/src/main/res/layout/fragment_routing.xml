@@ -24,11 +24,13 @@
 
         <!-- 1. Split RU Card -->
         <LinearLayout
+            android:id="@+id/cardSplitRu"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:background="@drawable/card_tv_focusable"
             android:padding="16dp"
+            android:clickable="true"
             android:focusable="true"
             android:layout_marginBottom="16dp">
 
@@ -147,11 +149,13 @@
 
         <!-- 3. Per-App Split Tunneling (Applications) -->
         <LinearLayout
+            android:id="@+id/cardPerApp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:background="@drawable/card_tv_focusable"
             android:padding="16dp"
+            android:clickable="true"
             android:focusable="true"
             android:layout_marginBottom="16dp">
 
@@ -242,6 +246,7 @@
             android:orientation="vertical"
             android:background="@drawable/card_tv_focusable"
             android:padding="16dp"
+            android:clickable="true"
             android:focusable="true"
             android:layout_marginBottom="16dp">
 
@@ -312,12 +317,14 @@
 
         <!-- 4. Subscriptions Auto-Update Card -->
         <LinearLayout
+            android:id="@+id/cardAutoUpdateSub"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:background="@drawable/card_tv_focusable"
             android:padding="16dp"
+            android:clickable="true"
             android:focusable="true"
             android:layout_marginBottom="16dp">
 
