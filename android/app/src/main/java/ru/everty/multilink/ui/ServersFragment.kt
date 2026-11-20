@@ -95,16 +95,7 @@ class ServersFragment : Fragment() {
             nodes = emptyList(),
             forcedNodeId = settings.forcedNodeId,
             onNodeClicked = { node ->
-                if (settings.forcedNodeId == node.id) {
-                    settings.forcedNodeId = null
-                    Toast.makeText(requireContext(), "Фиксация снята: активен Multi-Link", Toast.LENGTH_SHORT).show()
-                } else {
-                    settings.forcedNodeId = node.id
-                    settings.selectNode(node.id)
-                    Toast.makeText(requireContext(), "Сервер зафиксирован: ${node.name}", Toast.LENGTH_SHORT).show()
-                }
-                refreshList()
-                (activity as? MainActivity)?.notifyNodesChanged()
+                showPinConfirmationDialog(node)
             },
             onNodeLongClick = { node ->
                 showNodeActionDialog(node)
@@ -190,6 +181,10 @@ class ServersFragment : Fragment() {
             .setView(dialogView)
             .setNeutralButton("Открыть файл .conf") { _, _ -> configFilePicker.launch(arrayOf("*/*")) }
             .create()
+
+        if ((activity as? MainActivity)?.isTv == true) {
+            btnScan.visibility = View.GONE
+        }
 
         btnPaste.setOnClickListener {
             val clipboard = requireContext().getSystemService(android.content.Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
@@ -321,6 +316,38 @@ class ServersFragment : Fragment() {
         }
 
         dialog.show()
+    }
+
+    private fun showPinConfirmationDialog(node: VpnNode) {
+        val isCurrentlyPinned = (settings.forcedNodeId == node.id)
+        val title = if (isCurrentlyPinned) "Снять фиксацию сервера?" else "Зафиксировать сервер?"
+        val message = if (isCurrentlyPinned) {
+            "Сервер «${node.name}» сейчас зафиксирован.\n\nВернуться в автоматический режим Multi-Link (умный выбор и балансировка по лучшим маршрутам)?"
+        } else {
+            "Привязать весь трафик к серверу:\n«${node.name}» (${node.server}:${node.port})?\n\nВнимание: автоматическая балансировка Multi-Link будет отключена, пока сервер зафиксирован."
+        }
+        val positiveText = if (isCurrentlyPinned) "Вернуть Multi-Link" else "Зафиксировать"
+
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton(positiveText) { _, _ ->
+                if (isCurrentlyPinned) {
+                    settings.forcedNodeId = null
+                    Toast.makeText(requireContext(), "Фиксация снята: активен Multi-Link", Toast.LENGTH_SHORT).show()
+                } else {
+                    settings.forcedNodeId = node.id
+                    settings.selectNode(node.id)
+                    Toast.makeText(requireContext(), "Сервер зафиксирован: ${node.name}", Toast.LENGTH_SHORT).show()
+                }
+                refreshList()
+                (activity as? MainActivity)?.notifyNodesChanged()
+            }
+            .setNeutralButton("⚙️ Меню сервера") { _, _ ->
+                showNodeActionDialog(node)
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
     }
 
     private fun showNodeActionDialog(node: VpnNode) {

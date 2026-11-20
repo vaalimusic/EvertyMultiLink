@@ -301,7 +301,8 @@ class EvertyVpnService : VpnService() {
 
     private fun disconnect() {
         if (isDisconnecting.getAndSet(true)) {
-            Log.d(TAG, "Already disconnecting, skipping duplicate disconnect")
+            Log.d(TAG, "Already disconnecting, ensuring broadcast is sent")
+            broadcastState(STATE_DISCONNECTED)
             return
         }
         Log.d(TAG, "Disconnecting VPN...")
@@ -335,6 +336,7 @@ class EvertyVpnService : VpnService() {
         runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
         val nm = getSystemService(android.app.NotificationManager::class.java)
         runCatching { nm?.cancel(1001) }
+        isDisconnecting.set(false)
         Log.d(TAG, "VPN Disconnected cleanly.")
     }
 

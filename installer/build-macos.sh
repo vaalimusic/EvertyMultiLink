@@ -2,11 +2,19 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 root="$PWD"
-arch="$(uname -m)"
-case "$arch" in
-  arm64) core_hash=060b64b0f2c9a310831db0fe4adb2878de67bfa606c311813c1f13966aa504b6 ;;
-  x86_64) arch=amd64; core_hash=551ae54ef8d77a5e21f7a8185a59b441fb13a0fb0514fcdef5ca2816f6f50015 ;;
-  *) echo "Unsupported macOS architecture: $arch" >&2; exit 1 ;;
+target_arch="${TARGET_ARCH:-${1:-$(uname -m)}}"
+case "$target_arch" in
+  arm64|aarch64)
+    arch=arm64
+    rust_target="aarch64-apple-darwin"
+    core_hash=060b64b0f2c9a310831db0fe4adb2878de67bfa606c311813c1f13966aa504b6
+    ;;
+  x86_64|amd64)
+    arch=amd64
+    rust_target="x86_64-apple-darwin"
+    core_hash=551ae54ef8d77a5e21f7a8185a59b441fb13a0fb0514fcdef5ca2816f6f50015
+    ;;
+  *) echo "Unsupported macOS architecture: $target_arch" >&2; exit 1 ;;
 esac
 work="$root/artifacts/macos"
 downloads="$work/downloads"
@@ -23,13 +31,17 @@ core="mihomo-darwin-$arch-v1.19.33.gz"
 source="mihomo-v1.19.33-source.zip"
 download "https://github.com/MetaCubeX/mihomo/releases/download/v1.19.33/$core" "$downloads/$core" "$core_hash"
 download "https://codeload.github.com/MetaCubeX/mihomo/zip/refs/tags/v1.19.33" "$downloads/$source" bb705aa873fc0e9db352fdc69b992c93fad5b310756e0e5f81194a0e0c108e21
-cargo build --release --locked -p multilink-app
+cargo build --release --locked -p multilink-app --target "$rust_target"
 version="$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "multilink-app"))')"
 name="EvertyMultiLink-$version-macos-$arch${MULTILINK_PACKAGE_SUFFIX:-}"
 stage="$work/$name"
 app="$stage/Everty MultiLink.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources/Licenses"
-cp target/release/multilink-app "$app/Contents/MacOS/"
+if [ -f "target/$rust_target/release/multilink-app" ]; then
+  cp "target/$rust_target/release/multilink-app" "$app/Contents/MacOS/"
+else
+  cp target/release/multilink-app "$app/Contents/MacOS/"
+fi
 gzip -dc "$downloads/$core" > "$app/Contents/MacOS/mihomo"
 chmod 755 "$app/Contents/MacOS/"*
 cp LICENSE "$app/Contents/Resources/Licenses/Everty-MultiLink.LICENSE.txt"

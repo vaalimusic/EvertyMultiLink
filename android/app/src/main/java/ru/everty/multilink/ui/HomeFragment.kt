@@ -1,6 +1,11 @@
 package ru.everty.multilink.ui
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.content.res.ColorStateList
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -34,6 +39,14 @@ class HomeFragment : Fragment() {
                 binding.tvConnectionTimer.text = String.format("%02d:%02d:%02d", hours, minutes, seconds)
                 timerHandler.postDelayed(this, 1000)
             }
+        }
+    }
+
+    private val vpnReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val state = intent?.getIntExtra(EvertyVpnService.EXTRA_STATE, EvertyVpnService.STATE_DISCONNECTED)
+                ?: EvertyVpnService.STATE_DISCONNECTED
+            updateVpnState(state)
         }
     }
 
@@ -94,6 +107,12 @@ class HomeFragment : Fragment() {
 
     private fun setupListeners() {
         binding.frameConnectCircle.setOnClickListener {
+            val currentState = EvertyVpnService.currentState
+            if (currentState == EvertyVpnService.STATE_CONNECTED || currentState == EvertyVpnService.STATE_CONNECTING) {
+                updateVpnState(EvertyVpnService.STATE_DISCONNECTED)
+            } else {
+                updateVpnState(EvertyVpnService.STATE_CONNECTING)
+            }
             (activity as? MainActivity)?.toggleVpn()
         }
 
@@ -220,6 +239,19 @@ class HomeFragment : Fragment() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        val filter = IntentFilter(EvertyVpnService.ACTION_STATE_CHANGED)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                requireContext().registerReceiver(vpnReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                requireContext().registerReceiver(vpnReceiver, filter)
+            }
+        } catch (_: Exception) {}
+        updateVpnState(EvertyVpnService.currentState)
+    }
+
     override fun onResume() {
         super.onResume()
         updateModeDisplay()
@@ -232,6 +264,9 @@ class HomeFragment : Fragment() {
 
     override fun onStop() {
         super.onStop()
+        try {
+            requireContext().unregisterReceiver(vpnReceiver)
+        } catch (_: Exception) {}
         timerHandler.removeCallbacks(timerRunnable)
     }
 

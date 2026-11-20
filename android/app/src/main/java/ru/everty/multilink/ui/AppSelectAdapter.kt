@@ -82,6 +82,11 @@ class AppSelectAdapter(
                     onToggle(item)
                 }
             }
+
+            itemView.setOnFocusChangeListener { view, hasFocus ->
+                val scale = if (hasFocus) 1.02f else 1.0f
+                view.animate().scaleX(scale).scaleY(scale).setDuration(140).start()
+            }
         }
 
         fun bind(item: AppInfoItem) {

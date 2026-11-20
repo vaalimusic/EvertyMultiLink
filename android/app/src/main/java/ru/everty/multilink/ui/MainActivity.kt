@@ -72,8 +72,16 @@ class MainActivity : AppCompatActivity() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val state = intent?.getIntExtra(EvertyVpnService.EXTRA_STATE, EvertyVpnService.STATE_DISCONNECTED)
                 ?: EvertyVpnService.STATE_DISCONNECTED
-            pagerAdapter.homeFragment.updateVpnState(state)
+            notifyVpnStateChanged(state)
         }
+    }
+
+    fun notifyVpnStateChanged(state: Int) {
+        pagerAdapter.homeFragment.updateVpnState(state)
+        supportFragmentManager.fragments.filterIsInstance<HomeFragment>().forEach {
+            it.updateVpnState(state)
+        }
+        (supportFragmentManager.findFragmentByTag("f0") as? HomeFragment)?.updateVpnState(state)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -163,6 +171,7 @@ class MainActivity : AppCompatActivity() {
     fun toggleVpn() {
         if (EvertyVpnService.currentState == EvertyVpnService.STATE_CONNECTED ||
             EvertyVpnService.currentState == EvertyVpnService.STATE_CONNECTING) {
+            notifyVpnStateChanged(EvertyVpnService.STATE_DISCONNECTED)
             startVpnService(EvertyVpnService.ACTION_DISCONNECT)
         } else {
             val selectedNode = settings.getSelectedNode()
@@ -631,6 +640,12 @@ class MainActivity : AppCompatActivity() {
     fun notifyNodesChanged() {
         pagerAdapter.homeFragment.updateModeDisplay()
         pagerAdapter.serversFragment.refreshList()
+        supportFragmentManager.fragments.forEach { f ->
+            (f as? HomeFragment)?.updateModeDisplay()
+            (f as? ServersFragment)?.refreshList()
+        }
+        (supportFragmentManager.findFragmentByTag("f0") as? HomeFragment)?.updateModeDisplay()
+        (supportFragmentManager.findFragmentByTag("f1") as? ServersFragment)?.refreshList()
     }
 
     internal fun handleScannedQr(content: String) {
@@ -739,6 +754,11 @@ class MainActivity : AppCompatActivity() {
         } else {
             registerReceiver(vpnStateReceiver, filter)
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        notifyVpnStateChanged(EvertyVpnService.currentState)
     }
 
     override fun onStop() {

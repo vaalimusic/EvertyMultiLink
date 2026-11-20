@@ -38,6 +38,11 @@ class CustomRulesAdapter(
         private val btnDelete: ImageView = itemView.findViewById(R.id.btnDeleteRule)
 
         init {
+            itemView.setOnFocusChangeListener { view, hasFocus ->
+                val scale = if (hasFocus) 1.02f else 1.0f
+                view.animate().scaleX(scale).scaleY(scale).setDuration(140).start()
+            }
+
             btnDelete.setOnClickListener {
                 val pos = bindingAdapterPosition
                 if (pos != RecyclerView.NO_POSITION) {
